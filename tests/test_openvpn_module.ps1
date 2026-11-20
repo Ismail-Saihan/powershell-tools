@@ -55,10 +55,22 @@ if ($fileContent -notmatch "remote 182.163.126.253 1194 udp4") {
     throw "Test Failed: Deployed profile does not match expected server configuration"
 }
 
-# Test Get-OpenVpnGuiPath execution
-$null = Get-OpenVpnGuiPath
-
 # Cleanup
 Remove-Item $testDir -Recurse -Force
+
+# Test deployment in an in-memory session where $PSScriptRoot is empty (e.g. irm | iex)
+& {
+    $testDir2 = Join-Path $env:TEMP "TestOpenVpnConfigMemory"
+    if (Test-Path $testDir2) { Remove-Item $testDir2 -Recurse -Force }
+    $local:PSScriptRoot = ""
+    $deployed = Deploy-OpenVpnConfig -TargetDirectory $testDir2
+    if (-not (Test-Path $deployed)) {
+        throw "Test Failed: In-memory Deploy-OpenVpnConfig failed to deploy embedded profile"
+    }
+    Remove-Item $testDir2 -Recurse -Force
+}
+
+# Test Get-OpenVpnGuiPath execution
+$null = Get-OpenVpnGuiPath
 
 Write-Host "Task 3 Tests: ALL CHECKS PASSED!" -ForegroundColor Green

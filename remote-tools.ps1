@@ -112,6 +112,30 @@ function Get-ReleaseAssetUrl {
     return "https://github.com/$($global:RemoteToolsConfig.GitHubUser)/$($global:RemoteToolsConfig.GitHubRepo)/releases/download/$($global:RemoteToolsConfig.ReleaseTag)/$sanitized"
 }
 
+function Get-LocalAssetPath {
+    <#
+    .SYNOPSIS
+        Safely resolves a local asset path when running from disk or returns $null when running in-memory via irm | iex.
+    #>
+    param(
+        [Parameter(Mandatory=$true)][string]$RelativePath
+    )
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        $candidate = Join-Path $PSScriptRoot $RelativePath
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+    $cwd = Get-Location
+    if ($cwd) {
+        $cwdCandidate = Join-Path $cwd $RelativePath
+        if (Test-Path $cwdCandidate) {
+            return $cwdCandidate
+        }
+    }
+    return $null
+}
+
 function Invoke-DownloadWithProgress {
     <#
     .SYNOPSIS
@@ -410,8 +434,8 @@ function Deploy-OpenVpnConfig {
     $destPath = Join-Path $TargetDirectory "IPTSP VPN.ovpn"
     
     # If local file exists, use it; otherwise use embedded fallback
-    $localFile = Join-Path $PSScriptRoot "IPTSP VPN.ovpn"
-    if (Test-Path $localFile) {
+    $localFile = Get-LocalAssetPath -RelativePath "IPTSP VPN.ovpn"
+    if ($localFile) {
         Copy-Item -Path $localFile -Destination $destPath -Force
     } else {
         $bytes = [System.Convert]::FromBase64String($global:EmbeddedIptspOvpn)
@@ -1023,10 +1047,10 @@ function Install-PrinterDriver {
     Write-Host "`n--- Installing $($DriverInfo.Name) ---" -ForegroundColor Cyan
     
     # Check if file is available locally in script directory
-    $localPath = Join-Path $PSScriptRoot "Printer Driver\$($DriverInfo.Filename)"
+    $localPath = Get-LocalAssetPath -RelativePath "Printer Driver\$($DriverInfo.Filename)"
     $targetExe = $null
 
-    if (Test-Path $localPath) {
+    if ($localPath) {
         Write-Host "  -> Using local driver installer: $localPath" -ForegroundColor Green
         $targetExe = $localPath
     } else {
@@ -1209,9 +1233,9 @@ function Install-PrintServerModule {
 
     # Step 3: Copy or Download print_server.exe
     $destExe = Join-Path $serverDir "print_server.exe"
-    $localExe = Join-Path $PSScriptRoot "print_server.exe"
+    $localExe = Get-LocalAssetPath -RelativePath "print_server.exe"
 
-    if (Test-Path $localExe) {
+    if ($localExe) {
         Write-Host "  -> Copying local print_server.exe to: $destExe" -ForegroundColor Cyan
         Copy-Item -Path $localExe -Destination $destExe -Force
         Write-Host "  [OK] print_server.exe placed in: $destExe" -ForegroundColor Green

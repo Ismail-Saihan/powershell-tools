@@ -23,6 +23,7 @@ $requiredCoreFunctions = @(
     "Invoke-DownloadWithProgress",
     "Show-MainMenu",
     "Get-ReleaseAssetUrl",
+    "Get-LocalAssetPath",
     "Wait-UserPrompt",
     "Invoke-SelfElevation",
     "Test-NetworkPort"
