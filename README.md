@@ -9,31 +9,31 @@ irm https://raw.githubusercontent.com/Ismail-Saihan/powershell-tools/main/remote
 
 ---
 
-## 🚀 Key Features
+## 🚀 Key Features & Sub-Menu Modules
 
 * **Instant Web Execution**: Runs directly in memory via `irm | iex` with zero pre-installation required.
 * **Automatic Administrator Elevation**: Detects user privileges and prompts for UAC elevation automatically if required.
-* **1. OpenVPN Client & Profile Setup**:
-  * Silently installs OpenVPN Community Client.
-  * Automatically deploys and configures the `IPTSP VPN.ovpn` profile into `%USERPROFILE%\OpenVPN\config\` and `C:\Program Files\OpenVPN\config\`.
-  * Creates an OpenVPN GUI Desktop shortcut.
-* **2. VOIP Setup (MicroSIP)**:
-  * Detects MicroSIP; downloads and installs silently if missing.
-  * Prompts the user/technician for **Display Name**, **Extension / User ID**, and **SIP Password**.
-  * Pre-configures SIP Server IP (defaulted to `182.163.126.250` with interactive override).
-  * Automatically writes account settings and enables Windows auto-start in `MicroSIP.ini`.
-* **3. Printer Driver Installation**:
-  * Interactive sub-menu for popular thermal, label, and POS printers:
-    * `1. Gprinter Driver` (Barcode & Label Printer - `Gprinter Driver.exe`)
-    * `2. Rongta Driver` (Receipt & POS Printer - `Rongta Driver.exe`)
-    * `3. Dotmax Driver` (Dot Matrix & Form Printer - `Dotmax Printer Driver.exe`)
-  * Downloads installer with progress tracking and launches the vendor setup wizard for port/model selection.
-* **4. Barcode Print Server Bridge**:
-  * Automatically configures Microsoft Defender exclusions for `C:\PrintServer` folder and `print_server.exe` process.
-  * Deploys `print_server.exe` to `C:\PrintServer`.
-  * Creates a Desktop shortcut for manual launch.
-  * Configures Windows Startup to run `print_server.exe` **automatically and minimized** on boot via a background VBScript runner.
-  * Launches the HTTP bridge immediately on port `4444`.
+* **1. OpenVPN Client & Profile Menu**:
+  * `[1] Full Setup`: Silently installs OpenVPN Community Client, deploys `IPTSP VPN.ovpn`, and creates a Desktop shortcut.
+  * `[2] Deploy Profile Only`: Copies/updates `IPTSP VPN.ovpn` to user and program files config directories.
+  * `[3] Launch GUI`: Instantly starts OpenVPN GUI.
+  * `[4] Test Connectivity`: Tests network reachability to the VPN gateway (`182.163.126.253`).
+* **2. VOIP Setup & MicroSIP Menu**:
+  * `[1] Full Setup`: Auto-installs MicroSIP, prompts for credentials, and writes configuration.
+  * `[2] Update Credentials`: Updates username, extension, password, or SIP IP without re-installing.
+  * `[3] Launch Softphone`: Opens MicroSIP directly.
+  * `[4] Test Connectivity`: Tests connection to SIP Server (`182.163.126.250:5060`).
+* **3. Printer Driver Installation Menu**:
+  * `[1] Gprinter Driver` (Barcode & Label Printer - `Gprinter Driver.exe`)
+  * `[2] Rongta Driver` (Receipt & POS Printer - `Rongta Driver.exe`)
+  * `[3] Dotmax Driver` (Dot Matrix & Form Printer - `Dotmax Printer Driver.exe`)
+  * `[4] View Installed Printers`: Displays all active Windows printers, drivers, and ports.
+* **4. Barcode Print Server Bridge Menu**:
+  * `[1] Full Setup`: Adds Defender exclusions, deploys executable, registers minimized startup, and launches service.
+  * `[2] Start Minimized Now`: Launches `print_server.exe` in the background without a persistent black window.
+  * `[3] Stop Process`: Terminates any running `print_server.exe` instances.
+  * `[4] Test Port 4444 Bridge`: Validates process state and queries the HTTP `/printers` API endpoint.
+  * `[5] Re-apply Defender Exclusions`: Configures folder and process exclusions in Windows Defender.
 
 ---
 
@@ -56,12 +56,12 @@ irm https://raw.githubusercontent.com/Ismail-Saihan/powershell-tools/main/remote
     Version       : 1.0.0
    ==================================================================
 
-   Select an option from the menu below:
+   Select a module from the menu below:
 
-     [1] Setup OpenVPN (Install client + import IPTSP profile)
-     [2] Setup VOIP (MicroSIP auto-install + configure credentials)
-     [3] Install Printer Driver (Gprinter, Rongta, Dotmax)
-     [4] Install Print Server (Defender exclusion + minimized startup)
+     [1] OpenVPN Client & Profile Menu
+     [2] VOIP & MicroSIP Management Menu
+     [3] Printer Driver Installation Menu
+     [4] Barcode Print Server Bridge Menu
      [5] Exit
    ```
 

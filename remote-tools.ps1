@@ -157,6 +157,42 @@ function Write-WritePrompt {
     Write-Host $Value -ForegroundColor $Color
 }
 
+function Test-NetworkPort {
+    param(
+        [Parameter(Mandatory=$true)][string]$TargetHost,
+        [Parameter(Mandatory=$true)][int]$Port,
+        [int]$TimeoutSeconds = 2,
+        [switch]$Quiet
+    )
+    if (-not $Quiet) {
+        Write-Host "  -> Testing connection to $TargetHost`:$Port..." -ForegroundColor Cyan
+    }
+    try {
+        $tcpClient = New-Object System.Net.Sockets.TcpClient
+        $connect = $tcpClient.BeginConnect($TargetHost, $Port, $null, $null)
+        $wait = $connect.AsyncWaitHandle.WaitOne($TimeoutSeconds * 1000, $false)
+        if ($wait -and $tcpClient.Connected) {
+            $tcpClient.EndConnect($connect)
+            $tcpClient.Close()
+            if (-not $Quiet) {
+                Write-Host "  [OK] Connection SUCCESSFUL to $TargetHost`:$Port (Port OPEN)" -ForegroundColor Green
+            }
+            return $true
+        } else {
+            $tcpClient.Close()
+            if (-not $Quiet) {
+                Write-Host "  [FAIL] Connection TIMED OUT to $TargetHost`:$Port" -ForegroundColor Red
+            }
+            return $false
+        }
+    } catch {
+        if (-not $Quiet) {
+            Write-Host "  [FAIL] Could not reach $TargetHost`:$Port ($($_.Exception.Message))" -ForegroundColor Red
+        }
+        return $false
+    }
+}
+
 function Deploy-OpenVpnConfig {
     param(
         [Parameter(Mandatory=$true)][string]$TargetDirectory
@@ -235,6 +271,65 @@ function Install-OpenVPNModule {
 
     Write-Host "`n[SUCCESS] OpenVPN Setup Completed! You can now launch OpenVPN GUI and connect to 'IPTSP VPN'." -ForegroundColor Green
     return $true
+}
+
+function Show-OpenVpnMenu {
+    do {
+        Show-Header
+        Write-Host "--- [1] OpenVPN Client & Profile Management ---" -ForegroundColor Cyan
+        Write-Host "Select an option from below:`n" -ForegroundColor Yellow
+        Write-Host "  [1] Full Setup (Install Client + Import IPTSP Profile + Desktop Shortcut)" -ForegroundColor White
+        Write-Host "  [2] Deploy / Update IPTSP VPN Profile Only" -ForegroundColor White
+        Write-Host "  [3] Launch OpenVPN GUI" -ForegroundColor White
+        Write-Host "  [4] Test VPN Gateway Connectivity (182.163.126.253)" -ForegroundColor White
+        Write-Host "  [5] Return to Main Menu" -ForegroundColor Red
+        Write-Host ""
+
+        $vpnChoice = Read-Host "Enter option [1-5]"
+        switch ($vpnChoice) {
+            "1" {
+                $null = Install-OpenVPNModule
+                Write-Host "`nPress Enter to return to OpenVPN menu..."; [void][System.Console]::ReadLine()
+            }
+            "2" {
+                Write-Host "`nDeploying IPTSP VPN Profile..." -ForegroundColor Cyan
+                $userDir = Join-Path $env:USERPROFILE "OpenVPN\config"
+                $null = Deploy-OpenVpnConfig -TargetDirectory $userDir
+                if (Test-Path "C:\Program Files\OpenVPN") {
+                    $null = Deploy-OpenVpnConfig -TargetDirectory "C:\Program Files\OpenVPN\config"
+                }
+                Write-Host "`n[OK] IPTSP Profile deployed!" -ForegroundColor Green
+                Write-Host "`nPress Enter to return to OpenVPN menu..."; [void][System.Console]::ReadLine()
+            }
+            "3" {
+                $guiPath = "C:\Program Files\OpenVPN\bin\openvpn-gui.exe"
+                if (Test-Path $guiPath) {
+                    Start-Process -FilePath $guiPath
+                    Write-Host "`n[OK] OpenVPN GUI launched!" -ForegroundColor Green
+                } else {
+                    Write-Warning "OpenVPN GUI is not installed. Please choose Option 1 to install it."
+                }
+                Start-Sleep -Seconds 2
+            }
+            "4" {
+                Write-Host "`nTesting connectivity to VPN Gateway..." -ForegroundColor Cyan
+                $gw = "182.163.126.253"
+                $ping = Test-Connection -ComputerName $gw -Count 2 -Quiet -ErrorAction SilentlyContinue
+                if ($ping) {
+                    Write-Host "  [OK] ICMP Ping to $gw SUCCESSFUL!" -ForegroundColor Green
+                } else {
+                    Write-Warning "ICMP Ping to $gw did not respond (may be firewalled)."
+                }
+                $null = Test-NetworkPort -TargetHost $gw -Port 1194 -TimeoutSeconds 3
+                Write-Host "`nPress Enter to return to OpenVPN menu..."; [void][System.Console]::ReadLine()
+            }
+            "5" { break }
+            default {
+                Write-Host "Invalid option. Please choose between 1 and 5." -ForegroundColor Red
+                Start-Sleep -Seconds 1
+            }
+        }
+    } while ($vpnChoice -ne "5")
 }
 
 function Set-MicroSipConfig {
@@ -405,6 +500,75 @@ function Install-VoipModule {
     return $true
 }
 
+function Show-VoipMenu {
+    do {
+        Show-Header
+        Write-Host "--- [2] VOIP & MicroSIP Management ---" -ForegroundColor Cyan
+        Write-Host "Select an option from below:`n" -ForegroundColor Yellow
+        Write-Host "  [1] Full Setup (Install MicroSIP + Configure SIP Account)" -ForegroundColor White
+        Write-Host "  [2] Update SIP Account & Credentials (Without Re-installing)" -ForegroundColor White
+        Write-Host "  [3] Launch MicroSIP Softphone" -ForegroundColor White
+        Write-Host "  [4] Test SIP Server Connectivity (182.163.126.250:5060)" -ForegroundColor White
+        Write-Host "  [5] Return to Main Menu" -ForegroundColor Red
+        Write-Host ""
+
+        $voipChoice = Read-Host "Enter option [1-5]"
+        switch ($voipChoice) {
+            "1" {
+                $null = Install-VoipModule
+                Write-Host "`nPress Enter to return to VOIP menu..."; [void][System.Console]::ReadLine()
+            }
+            "2" {
+                Write-Host "`nUpdate VOIP Credentials:" -ForegroundColor Yellow
+                $username = Read-Host "  Enter User Name (Display Name)"
+                $extension = Read-Host "  Enter Extension / User ID"
+                $password = Read-Host "  Enter SIP Password"
+                $defaultSip = $global:RemoteToolsConfig.DefaultSipServer
+                $sipInput = Read-Host "  Enter SIP Server IP [$defaultSip]"
+                $sipServer = if ([string]::IsNullOrWhiteSpace($sipInput)) { $defaultSip } else { $sipInput.Trim() }
+
+                $appDataIni = Join-Path $env:APPDATA "MicroSIP\MicroSIP.ini"
+                $null = Set-MicroSipConfig -IniPath $appDataIni -Username $username -Extension $extension -Password $password -SipServer $sipServer
+                Write-Host "`n[OK] SIP configuration updated!" -ForegroundColor Green
+                Write-Host "`nPress Enter to return to VOIP menu..."; [void][System.Console]::ReadLine()
+            }
+            "3" {
+                $microSipPaths = @(
+                    "C:\Program Files\MicroSIP\microsip.exe",
+                    "C:\Program Files (x86)\MicroSIP\microsip.exe",
+                    (Join-Path $env:LOCALAPPDATA "MicroSIP\microsip.exe")
+                )
+                $found = $null
+                foreach ($p in $microSipPaths) { if (Test-Path $p) { $found = $p; break } }
+                if ($found) {
+                    Start-Process -FilePath $found
+                    Write-Host "`n[OK] MicroSIP softphone launched!" -ForegroundColor Green
+                } else {
+                    Write-Warning "MicroSIP is not installed. Choose Option 1 to install it."
+                }
+                Start-Sleep -Seconds 2
+            }
+            "4" {
+                Write-Host "`nTesting connectivity to SIP Server..." -ForegroundColor Cyan
+                $sipHost = $global:RemoteToolsConfig.DefaultSipServer
+                $ping = Test-Connection -ComputerName $sipHost -Count 2 -Quiet -ErrorAction SilentlyContinue
+                if ($ping) {
+                    Write-Host "  [OK] ICMP Ping to $sipHost SUCCESSFUL!" -ForegroundColor Green
+                } else {
+                    Write-Host "  [INFO] ICMP Ping to $sipHost did not respond (may be filtered)." -ForegroundColor DarkGray
+                }
+                $null = Test-NetworkPort -TargetHost $sipHost -Port 5060 -TimeoutSeconds 3
+                Write-Host "`nPress Enter to return to VOIP menu..."; [void][System.Console]::ReadLine()
+            }
+            "5" { break }
+            default {
+                Write-Host "Invalid option. Please choose between 1 and 5." -ForegroundColor Red
+                Start-Sleep -Seconds 1
+            }
+        }
+    } while ($voipChoice -ne "5")
+}
+
 function Install-PrinterDriver {
     param(
         [Parameter(Mandatory=$true)][hashtable]$DriverInfo
@@ -446,20 +610,29 @@ function Show-PrinterDriverMenu {
         Write-Host "  [1] Gprinter Driver (Barcode & Label Printer)" -ForegroundColor White
         Write-Host "  [2] Rongta Driver (Receipt & POS Printer)" -ForegroundColor White
         Write-Host "  [3] Dotmax Driver (Dot Matrix & Form Printer)" -ForegroundColor White
-        Write-Host "  [4] Return to Main Menu" -ForegroundColor Red
+        Write-Host "  [4] View Installed Windows Printers" -ForegroundColor White
+        Write-Host "  [5] Return to Main Menu" -ForegroundColor Red
         Write-Host ""
 
-        $driverChoice = Read-Host "Enter driver option [1-4]"
+        $driverChoice = Read-Host "Enter driver option [1-5]"
         if ($global:PrinterDrivers.ContainsKey($driverChoice)) {
             $null = Install-PrinterDriver -DriverInfo $global:PrinterDrivers[$driverChoice]
             Write-Host "`nPress Enter to return to Printer Drivers menu..."; [void][System.Console]::ReadLine()
         } elseif ($driverChoice -eq "4") {
+            Write-Host "`nInstalled Printers on this system:" -ForegroundColor Cyan
+            try {
+                Get-Printer | Select-Object Name, DriverName, PortName, PrinterStatus | Format-Table -AutoSize
+            } catch {
+                Write-Warning "Could not retrieve printers: $($_.Exception.Message)"
+            }
+            Write-Host "Press Enter to return to Printer Drivers menu..."; [void][System.Console]::ReadLine()
+        } elseif ($driverChoice -eq "5") {
             break
         } else {
-            Write-Host "Invalid option. Please choose between 1 and 4." -ForegroundColor Red
+            Write-Host "Invalid option. Please choose between 1 and 5." -ForegroundColor Red
             Start-Sleep -Seconds 1
         }
-    } while ($driverChoice -ne "4")
+    } while ($driverChoice -ne "5")
 }
 
 function Add-PrintServerDefenderExclusions {
@@ -589,14 +762,100 @@ function Install-PrintServerModule {
     return $true
 }
 
+function Show-PrintServerMenu {
+    do {
+        Show-Header
+        Write-Host "--- [4] Barcode Print Server Bridge Management ---" -ForegroundColor Cyan
+        Write-Host "Select an option from below:`n" -ForegroundColor Yellow
+        Write-Host "  [1] Full Setup (Defender Exclusions + Copy + Minimized Startup + Start)" -ForegroundColor White
+        Write-Host "  [2] Start Print Server (Minimized Now)" -ForegroundColor White
+        Write-Host "  [3] Stop Running Print Server Process" -ForegroundColor White
+        Write-Host "  [4] Test Port 4444 Bridge Status & Endpoint" -ForegroundColor White
+        Write-Host "  [5] Re-apply Microsoft Defender Exclusions" -ForegroundColor White
+        Write-Host "  [6] Return to Main Menu" -ForegroundColor Red
+        Write-Host ""
+
+        $psChoice = Read-Host "Enter option [1-6]"
+        switch ($psChoice) {
+            "1" {
+                $null = Install-PrintServerModule
+                Write-Host "`nPress Enter to return to Print Server menu..."; [void][System.Console]::ReadLine()
+            }
+            "2" {
+                $serverDir = $global:RemoteToolsConfig.PrintServerDir
+                $destExe = Join-Path $serverDir "print_server.exe"
+                $vbsPath = Join-Path $serverDir "start_minimized.vbs"
+
+                if (-not (Test-Path $destExe)) {
+                    Write-Warning "print_server.exe not found in $serverDir. Please run Option 1 (Full Setup) first."
+                } else {
+                    $running = Get-Process print_server -ErrorAction SilentlyContinue
+                    if ($running) {
+                        Write-Host "  [INFO] Print Server is already running (PID: $($running.Id))." -ForegroundColor Yellow
+                    } else {
+                        Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsPath`""
+                        Start-Sleep -Seconds 2
+                        $newProc = Get-Process print_server -ErrorAction SilentlyContinue
+                        if ($newProc) {
+                            Write-Host "  [OK] Print Server started successfully (PID: $($newProc.Id))!" -ForegroundColor Green
+                        } else {
+                            Write-Warning "Failed to verify print_server running state."
+                        }
+                    }
+                }
+                Write-Host "`nPress Enter to return to Print Server menu..."; [void][System.Console]::ReadLine()
+            }
+            "3" {
+                $running = Get-Process print_server -ErrorAction SilentlyContinue
+                if ($running) {
+                    $running | Stop-Process -Force
+                    Write-Host "  [OK] Print Server process stopped successfully." -ForegroundColor Green
+                } else {
+                    Write-Host "  [INFO] Print Server is not currently running." -ForegroundColor Yellow
+                }
+                Start-Sleep -Seconds 2
+            }
+            "4" {
+                Write-Host "`nChecking Print Server Bridge on port 4444..." -ForegroundColor Cyan
+                $proc = Get-Process print_server -ErrorAction SilentlyContinue
+                if ($proc) {
+                    Write-Host "  [OK] Process 'print_server.exe' is RUNNING (PID: $($proc.Id))" -ForegroundColor Green
+                } else {
+                    Write-Host "  [FAIL] Process 'print_server.exe' is NOT RUNNING" -ForegroundColor Red
+                }
+
+                $portOpen = Test-NetworkPort -TargetHost "127.0.0.1" -Port 4444 -TimeoutSeconds 2
+                if ($portOpen) {
+                    try {
+                        $null = Invoke-RestMethod -Uri "http://127.0.0.1:4444/printers" -TimeoutSec 2 -ErrorAction Stop
+                        Write-Host "  [OK] HTTP Endpoint /printers responded successfully!" -ForegroundColor Green
+                    } catch {
+                        Write-Host "  [INFO] Port 4444 open, endpoint response: $($_.Exception.Message)" -ForegroundColor DarkGray
+                    }
+                }
+                Write-Host "`nPress Enter to return to Print Server menu..."; [void][System.Console]::ReadLine()
+            }
+            "5" {
+                $null = Add-PrintServerDefenderExclusions -ServerDir $global:RemoteToolsConfig.PrintServerDir
+                Write-Host "`nPress Enter to return to Print Server menu..."; [void][System.Console]::ReadLine()
+            }
+            "6" { break }
+            default {
+                Write-Host "Invalid option. Please choose between 1 and 6." -ForegroundColor Red
+                Start-Sleep -Seconds 1
+            }
+        }
+    } while ($psChoice -ne "6")
+}
+
 function Show-MainMenu {
     Show-Header
-    Write-Host "Select an option from the menu below:" -ForegroundColor Yellow
+    Write-Host "Select a module from the menu below:" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "  [1] Setup OpenVPN (Install client + import IPTSP profile)" -ForegroundColor White
-    Write-Host "  [2] Setup VOIP (MicroSIP auto-install + configure credentials)" -ForegroundColor White
-    Write-Host "  [3] Install Printer Driver (Gprinter, Rongta, Dotmax)" -ForegroundColor White
-    Write-Host "  [4] Install Print Server (Defender exclusion + minimized startup)" -ForegroundColor White
+    Write-Host "  [1] OpenVPN Client & Profile Menu" -ForegroundColor White
+    Write-Host "  [2] VOIP & MicroSIP Management Menu" -ForegroundColor White
+    Write-Host "  [3] Printer Driver Installation Menu" -ForegroundColor White
+    Write-Host "  [4] Barcode Print Server Bridge Menu" -ForegroundColor White
     Write-Host "  [5] Exit" -ForegroundColor Red
     Write-Host ""
 }
@@ -613,10 +872,10 @@ if (-not $TestMode) {
         Show-MainMenu
         $choice = Read-Host "Enter option number [1-5]"
         switch ($choice) {
-            "1" { $null = Install-OpenVPNModule; Write-Host "`nPress Enter to return to menu..."; [void][System.Console]::ReadLine() }
-            "2" { $null = Install-VoipModule; Write-Host "`nPress Enter to return to menu..."; [void][System.Console]::ReadLine() }
+            "1" { Show-OpenVpnMenu }
+            "2" { Show-VoipMenu }
             "3" { Show-PrinterDriverMenu }
-            "4" { $null = Install-PrintServerModule; Write-Host "`nPress Enter to return to menu..."; [void][System.Console]::ReadLine() }
+            "4" { Show-PrintServerMenu }
             "5" { Write-Host "`nExiting Remote Tools. Goodbye!" -ForegroundColor Green; break }
             default { Write-Host "Invalid option. Please choose between 1 and 5." -ForegroundColor Red; Start-Sleep -Seconds 1 }
         }

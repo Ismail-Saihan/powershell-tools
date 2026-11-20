@@ -11,7 +11,8 @@ $testFiles = @(
     "test_microsip_module.ps1",
     "test_printer_module.ps1",
     "test_printserver_module.ps1",
-    "test_publish_release.ps1"
+    "test_publish_release.ps1",
+    "test_submenus.ps1"
 )
 
 $passed = 0
