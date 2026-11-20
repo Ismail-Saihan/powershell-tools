@@ -629,6 +629,79 @@ function Get-MicroSipExePath {
     return $null
 }
 
+function Get-DerivedVoipProfile {
+    <#
+    .SYNOPSIS
+        Intelligently derives all VOIP account fields from minimal inputs:
+        Extension, Full Name, Location, Password, and SIP Server.
+    #>
+    param(
+        [Parameter(Mandatory=$true)][string]$Extension,
+        [Parameter(Mandatory=$true)][string]$FullName,
+        [string]$Location = "IT",
+        [string]$Password = "",
+        [string]$SipServer = "182.163.126.250",
+        [int]$SipPort = 5060
+    )
+
+    $Extension = if ($Extension) { $Extension.Trim() } else { "" }
+    $FullName = if ($FullName) { $FullName.Trim() } else { "" }
+    $Location = if ($Location) { $Location.Trim() } else { "" }
+    $Password = if ($Password) { $Password.Trim() } else { "" }
+    $SipServer = if ($SipServer) { $SipServer.Trim() } else { "182.163.126.250" }
+
+    # If Location was not provided or empty, check if FullName has [Location] tag embedded
+    # e.g. "Ismail Hossain Saihan[IT]" -> clean name: "Ismail Hossain Saihan", location: "IT"
+    if ($FullName -match '^(.*?)\s*\[([^\]]+)\]\s*$') {
+        $cleanFullName = $matches[1].Trim()
+        if ([string]::IsNullOrWhiteSpace($Location)) {
+            $Location = $matches[2].Trim()
+        }
+    } else {
+        $cleanFullName = $FullName
+    }
+
+    # Fallback location to "IT" if still empty
+    if ([string]::IsNullOrWhiteSpace($Location)) {
+        $Location = "IT"
+    }
+
+    # Extract First Name for Caller ID / Display Name
+    # Skip honorifics/prefixes like "Md.", "Dr.", "Mr.", "Mrs.", "Ms."
+    $words = $cleanFullName -split '\s+'
+    $firstName = ""
+    foreach ($w in $words) {
+        $trimmedWord = $w.Trim().TrimEnd('.')
+        if ($trimmedWord -notmatch '^(Md|Mohammad|Muhammed|Dr|Prof|Mr|Mrs|Ms)$' -and $trimmedWord.Length -gt 0) {
+            $firstName = $trimmedWord
+            break
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($firstName) -and $words.Count -gt 0) {
+        $firstName = $words[0].Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace($firstName)) {
+        $firstName = $Extension
+    }
+
+    $accountName = "$Extension- $cleanFullName[$Location]"
+    $displayName = "$firstName-$Location"
+    $serverWithPort = if ($SipPort -and $SipPort -ne 0) { "$SipServer`:$SipPort" } else { $SipServer }
+
+    return [PSCustomObject]@{
+        Extension   = $Extension
+        FullName    = $cleanFullName
+        Location    = $Location
+        Password    = $Password
+        AccountName = $accountName
+        DisplayName = $displayName
+        Server      = $serverWithPort
+        Proxy       = $serverWithPort
+        Domain      = $SipServer
+        Port        = $SipPort
+    }
+}
+
 function Set-MicroSipConfig {
     <#
     .SYNOPSIS
@@ -641,6 +714,7 @@ function Set-MicroSipConfig {
         [Parameter(Mandatory=$true)][string]$Extension,
         [Parameter(Mandatory=$true)][string]$Password,
         [string]$FullName = "",
+        [string]$Location = "",
         [string]$DisplayName = "",
         [string]$AccountName = "",
         [string]$Username = "",
@@ -656,20 +730,24 @@ function Set-MicroSipConfig {
     # Trim inputs (VOIP-03)
     $Extension = if ($Extension) { $Extension.Trim() } else { "" }
     $Password = if ($Password) { $Password.Trim() } else { "" }
-    $FullName = if ($FullName) { $FullName.Trim() } elseif ($Username) { $Username.Trim() } else { "" }
-    $DisplayName = if ($DisplayName) { $DisplayName.Trim() } else { "" }
-    $AccountName = if ($AccountName) { $AccountName.Trim() } else { "" }
+    $effectiveFullName = if ($FullName) { $FullName.Trim() } elseif ($Username) { $Username.Trim() } else { "" }
+    $Location = if ($Location) { $Location.Trim() } else { "" }
     $SipServer = if ($SipServer) { $SipServer.Trim() } else { "182.163.126.250" }
 
-    # Smart defaults matching MicroSIP Account configuration dialog
-    if ([string]::IsNullOrWhiteSpace($AccountName)) {
-        $AccountName = if ($FullName) { "$Extension- $FullName" } else { "$Extension- VOIP" }
-    }
-    if ([string]::IsNullOrWhiteSpace($DisplayName)) {
-        $DisplayName = if ($FullName) { $FullName } else { $Extension }
-    }
+    # Derive smart defaults
+    $derived = Get-DerivedVoipProfile -Extension $Extension `
+                                      -FullName $effectiveFullName `
+                                      -Location $Location `
+                                      -Password $Password `
+                                      -SipServer $SipServer `
+                                      -SipPort $SipPort
 
-    $serverWithPort = if ($SipPort -and $SipPort -ne 0) { "$SipServer`:$SipPort" } else { $SipServer }
+    # Allow explicit overrides if specified, otherwise use derived
+    $finalAccountName = if (-not [string]::IsNullOrWhiteSpace($AccountName)) { $AccountName.Trim() } else { $derived.AccountName }
+    $finalDisplayName = if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { $DisplayName.Trim() } else { $derived.DisplayName }
+    $finalServer      = $derived.Server
+    $finalProxy       = $derived.Proxy
+    $finalDomain      = $derived.Domain
 
     # Parse existing INI if it exists to preserve existing sections (VOIP-01)
     $sections = [ordered]@{}
@@ -742,16 +820,16 @@ function Set-MicroSipConfig {
 
     # Build updated [Account1] settings matching the MicroSIP Account configuration dialog
     $accList = [System.Collections.Generic.List[string]]::new()
-    $accList.Add("label=$AccountName")
-    $accList.Add("server=$serverWithPort")
-    $accList.Add("proxy=$serverWithPort")
+    $accList.Add("label=$finalAccountName")
+    $accList.Add("server=$finalServer")
+    $accList.Add("proxy=$finalProxy")
     $accList.Add("user=$Extension")
     $accList.Add("username=$Extension")
-    $accList.Add("domain=$SipServer")
+    $accList.Add("domain=$finalDomain")
     $accList.Add("authID=$Extension")
     $accList.Add("password=$Password")
-    $accList.Add("displayName=$DisplayName")
-    $accList.Add("name=$DisplayName")
+    $accList.Add("displayName=$finalDisplayName")
+    $accList.Add("name=$finalDisplayName")
     $accList.Add("transport=0")
     $accList.Add("srtp=0")
     $accList.Add("publish=1")
@@ -839,7 +917,7 @@ function Install-VoipModule {
     }
 
     # Prompt user for credentials with secure password masking (SEC-02, VOIP-03)
-    Write-Host "`nPlease enter the VOIP credentials (as shown in MicroSIP Account configuration):" -ForegroundColor Yellow
+    Write-Host "`nPlease enter VOIP credentials:" -ForegroundColor Yellow
     
     $extension = Read-Host "  Enter Extension / User ID (e.g. 1054)"
     $extension = if ($extension) { $extension.Trim() } else { "" }
@@ -848,26 +926,16 @@ function Install-VoipModule {
         $extension = (Read-Host "  Enter Extension / User ID (e.g. 1054)").Trim()
     }
 
-    $fullName = Read-Host "  Enter Full Name & Designation (e.g. Ismail Hossain Saihan[IT])"
+    $fullName = Read-Host "  Enter User Name (e.g. Ismail Hossain Saihan)"
     $fullName = if ($fullName) { $fullName.Trim() } else { "" }
     while ([string]::IsNullOrWhiteSpace($fullName)) {
-        Write-Host "  Full Name cannot be empty." -ForegroundColor Red
-        $fullName = (Read-Host "  Enter Full Name & Designation").Trim()
+        Write-Host "  User Name cannot be empty." -ForegroundColor Red
+        $fullName = (Read-Host "  Enter User Name (e.g. Ismail Hossain Saihan)").Trim()
     }
 
-    # Intelligent display name suggestion (e.g. Ismail Hossain Saihan[IT] -> Ismail-IT)
-    $suggestedDisplayName = if ($fullName -match "([A-Za-z]+).*?(\[[^\]]+\])") {
-        "$($matches[1])-$($matches[2].Trim('[]'))"
-    } else {
-        $fullName
-    }
-    $displayInput = Read-Host "  Enter Display Name / Caller ID [$suggestedDisplayName]"
-    $displayName = if ([string]::IsNullOrWhiteSpace($displayInput)) { $suggestedDisplayName } else { $displayInput.Trim() }
-
-    # Intelligent account name suggestion (e.g. 1054- Ismail Hossain Saihan[IT])
-    $suggestedAccountName = "$extension- $fullName"
-    $accountInput = Read-Host "  Enter Account Name [$suggestedAccountName]"
-    $accountName = if ([string]::IsNullOrWhiteSpace($accountInput)) { $suggestedAccountName } else { $accountInput.Trim() }
+    $suggestedLocation = if ($fullName -match '\[(.*?)\]') { $matches[1] } else { "IT" }
+    $locInput = Read-Host "  Enter Location / Department [$suggestedLocation]"
+    $location = if ([string]::IsNullOrWhiteSpace($locInput)) { $suggestedLocation } else { $locInput.Trim() }
 
     $password = $null
     while ([string]::IsNullOrWhiteSpace($password)) {
@@ -882,19 +950,34 @@ function Install-VoipModule {
         }
     }
 
-    $defaultSip = $global:RemoteToolsConfig.DefaultSipServer
-    $sipInput = Read-Host "  Enter SIP Server IP or Domain [$defaultSip]"
-    $sipServer = if ([string]::IsNullOrWhiteSpace($sipInput)) { $defaultSip } else { $sipInput.Trim() }
+    # Derive smart profile
+    $derived = Get-DerivedVoipProfile -Extension $extension `
+                                      -FullName $fullName `
+                                      -Location $location `
+                                      -Password $password `
+                                      -SipServer $global:RemoteToolsConfig.DefaultSipServer `
+                                      -SipPort $global:RemoteToolsConfig.DefaultSipPort
+
+    Write-Host "`n  -> Generated VOIP Configuration Summary:" -ForegroundColor Cyan
+    Write-Host "     [+] Extension    : $($derived.Extension)" -ForegroundColor White
+    Write-Host "     [+] User Name    : $($derived.FullName)" -ForegroundColor White
+    Write-Host "     [+] Location     : $($derived.Location)" -ForegroundColor White
+    Write-Host "     [+] Account Name : $($derived.AccountName)" -ForegroundColor Green
+    Write-Host "     [+] Display Name : $($derived.DisplayName)" -ForegroundColor Green
+    Write-Host "     [+] SIP Server   : $($derived.Server)" -ForegroundColor DarkGray
+    Write-Host "     [+] Call Record  : Enabled (Auto MP3)" -ForegroundColor DarkGray
+    Write-Host "     [+] Auto Updates : Disabled" -ForegroundColor DarkGray
 
     # Write MicroSIP configuration
     $appDataIni = Join-Path $env:APPDATA "MicroSIP\MicroSIP.ini"
     Set-MicroSipConfig -IniPath $appDataIni `
-                       -Extension $extension `
-                       -FullName $fullName `
-                       -DisplayName $displayName `
-                       -AccountName $accountName `
-                       -Password $password `
-                       -SipServer $sipServer `
+                       -Extension $derived.Extension `
+                       -FullName $derived.FullName `
+                       -Location $derived.Location `
+                       -AccountName $derived.AccountName `
+                       -DisplayName $derived.DisplayName `
+                       -Password $derived.Password `
+                       -SipServer $global:RemoteToolsConfig.DefaultSipServer `
                        -SipPort $global:RemoteToolsConfig.DefaultSipPort
 
     # Ensure Public Desktop shortcut for all remote users (ENV-01)
@@ -957,25 +1040,17 @@ function Show-VoipMenu {
                 }
                 $extension = $extension.Trim()
 
-                $fullName = Read-Host "  Enter Full Name & Designation (e.g. Ismail Hossain Saihan[IT])"
+                $fullName = Read-Host "  Enter User Name (e.g. Ismail Hossain Saihan)"
                 while ([string]::IsNullOrWhiteSpace($fullName)) {
-                    Write-Host "  Full Name cannot be empty." -ForegroundColor Red
-                    $fullName = Read-Host "  Enter Full Name & Designation"
+                    Write-Host "  User Name cannot be empty." -ForegroundColor Red
+                    $fullName = Read-Host "  Enter User Name"
                 }
                 $fullName = $fullName.Trim()
 
-                $suggestedDisplayName = if ($fullName -match "([A-Za-z]+).*?(\[[^\]]+\])") {
-                    "$($matches[1])-$($matches[2].Trim('[]'))"
-                } else {
-                    $fullName
-                }
-                $displayInput = Read-Host "  Enter Display Name / Caller ID [$suggestedDisplayName]"
-                $displayName = if ([string]::IsNullOrWhiteSpace($displayInput)) { $suggestedDisplayName } else { $displayInput.Trim() }
+                $suggestedLocation = if ($fullName -match '\[(.*?)\]') { $matches[1] } else { "IT" }
+                $locInput = Read-Host "  Enter Location / Department [$suggestedLocation]"
+                $location = if ([string]::IsNullOrWhiteSpace($locInput)) { $suggestedLocation } else { $locInput.Trim() }
 
-                $suggestedAccountName = "$extension- $fullName"
-                $accountInput = Read-Host "  Enter Account Name [$suggestedAccountName]"
-                $accountName = if ([string]::IsNullOrWhiteSpace($accountInput)) { $suggestedAccountName } else { $accountInput.Trim() }
-                
                 $password = $null
                 while ([string]::IsNullOrWhiteSpace($password)) {
                     Write-Host "  Enter SIP Password: " -NoNewline
@@ -989,18 +1064,33 @@ function Show-VoipMenu {
                     }
                 }
 
-                $defaultSip = $global:RemoteToolsConfig.DefaultSipServer
-                $sipInput = Read-Host "  Enter SIP Server IP or Domain [$defaultSip]"
-                $sipServer = if ([string]::IsNullOrWhiteSpace($sipInput)) { $defaultSip } else { $sipInput.Trim() }
+                # Derive smart profile
+                $derived = Get-DerivedVoipProfile -Extension $extension `
+                                                  -FullName $fullName `
+                                                  -Location $location `
+                                                  -Password $password `
+                                                  -SipServer $global:RemoteToolsConfig.DefaultSipServer `
+                                                  -SipPort $global:RemoteToolsConfig.DefaultSipPort
+
+                Write-Host "`n  -> Generated VOIP Configuration Summary:" -ForegroundColor Cyan
+                Write-Host "     [+] Extension    : $($derived.Extension)" -ForegroundColor White
+                Write-Host "     [+] User Name    : $($derived.FullName)" -ForegroundColor White
+                Write-Host "     [+] Location     : $($derived.Location)" -ForegroundColor White
+                Write-Host "     [+] Account Name : $($derived.AccountName)" -ForegroundColor Green
+                Write-Host "     [+] Display Name : $($derived.DisplayName)" -ForegroundColor Green
+                Write-Host "     [+] SIP Server   : $($derived.Server)" -ForegroundColor DarkGray
+                Write-Host "     [+] Call Record  : Enabled (Auto MP3)" -ForegroundColor DarkGray
+                Write-Host "     [+] Auto Updates : Disabled" -ForegroundColor DarkGray
 
                 $appDataIni = Join-Path $env:APPDATA "MicroSIP\MicroSIP.ini"
                 $null = Set-MicroSipConfig -IniPath $appDataIni `
-                                           -Extension $extension `
-                                           -FullName $fullName `
-                                           -DisplayName $displayName `
-                                           -AccountName $accountName `
-                                           -Password $password `
-                                           -SipServer $sipServer `
+                                           -Extension $derived.Extension `
+                                           -FullName $derived.FullName `
+                                           -Location $derived.Location `
+                                           -AccountName $derived.AccountName `
+                                           -DisplayName $derived.DisplayName `
+                                           -Password $derived.Password `
+                                           -SipServer $global:RemoteToolsConfig.DefaultSipServer `
                                            -SipPort $global:RemoteToolsConfig.DefaultSipPort
                 Write-Host "`n[OK] SIP configuration updated!" -ForegroundColor Green
                 Wait-UserPrompt "Press Enter to return to VOIP menu..."

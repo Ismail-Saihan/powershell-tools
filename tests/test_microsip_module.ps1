@@ -12,6 +12,9 @@ if ($content -notmatch "function Install-VoipModule") {
 if ($content -notmatch "function Set-MicroSipConfig") {
     throw "Test Failed: Set-MicroSipConfig function missing"
 }
+if ($content -notmatch "function Get-DerivedVoipProfile") {
+    throw "Test Failed: Get-DerivedVoipProfile function missing"
+}
 if ($content -notmatch "function Get-MicroSipExePath") {
     throw "Test Failed: Get-MicroSipExePath function missing"
 }
@@ -86,6 +89,7 @@ user=100
 # Update credentials with whitespace (testing VOIP-03 trimming)
 Set-MicroSipConfig -IniPath $testIniPath `
                    -FullName "  Jane Smith  " `
+                   -Location "  Support  " `
                    -Extension "  305  " `
                    -Password "  NewSecurePass456  " `
                    -SipServer "  182.163.126.250  " `
@@ -99,12 +103,12 @@ if ($updatedContent -notmatch "101=Reception Desk") { throw "Test Failed: Preser
 if ($updatedContent -notmatch "102=Billing Department") { throw "Test Failed: Preserved contact entry 102 missing" }
 
 # Verify updated and trimmed Account1
-if ($updatedContent -notmatch "label=305- Jane Smith") { throw "Test Failed: Updated label missing or untrimmed" }
+if ($updatedContent -notmatch "label=305- Jane Smith\[Support\]") { throw "Test Failed: Updated label missing or untrimmed" }
 if ($updatedContent -notmatch "user=305") { throw "Test Failed: Updated user=305 missing or untrimmed" }
 if ($updatedContent -notmatch "username=305") { throw "Test Failed: Updated username=305 missing or untrimmed" }
 if ($updatedContent -notmatch "authID=305") { throw "Test Failed: Updated authID=305 missing" }
-if ($updatedContent -notmatch "displayName=Jane Smith") { throw "Test Failed: Updated displayName missing or untrimmed" }
-if ($updatedContent -notmatch "name=Jane Smith") { throw "Test Failed: Updated name missing or untrimmed" }
+if ($updatedContent -notmatch "displayName=Jane-Support") { throw "Test Failed: Updated displayName missing or untrimmed" }
+if ($updatedContent -notmatch "name=Jane-Support") { throw "Test Failed: Updated name missing or untrimmed" }
 if ($updatedContent -notmatch "password=NewSecurePass456") { throw "Test Failed: Updated password missing or untrimmed" }
 if ($updatedContent -notmatch "accountId=1") { throw "Test Failed: accountId=1 missing in updated Settings" }
 
@@ -114,6 +118,55 @@ if ($updatedContent -notmatch "updatesInterval=never") { throw "Test Failed: upd
 
 # Test 4: Get-MicroSipExePath
 $null = Get-MicroSipExePath
+
+# Test 5: Verify Get-DerivedVoipProfile derivation logic
+$p1 = Get-DerivedVoipProfile -Extension "1054" -FullName "Ismail Hossain Saihan" -Location "IT" -Password "pass1"
+if ($p1.AccountName -ne "1054- Ismail Hossain Saihan[IT]") {
+    throw "Test Failed: Expected AccountName '1054- Ismail Hossain Saihan[IT]' but got '$($p1.AccountName)'"
+}
+if ($p1.DisplayName -ne "Ismail-IT") {
+    throw "Test Failed: Expected DisplayName 'Ismail-IT' but got '$($p1.DisplayName)'"
+}
+if ($p1.Server -ne "182.163.126.250:5060") {
+    throw "Test Failed: Expected Server '182.163.126.250:5060' but got '$($p1.Server)'"
+}
+
+# Test 5b: Honorific handling (Md. Ismail Hossain -> Ismail-Banani)
+$p2 = Get-DerivedVoipProfile -Extension "1020" -FullName "Md. Ismail Hossain" -Location "Banani" -Password "pass2"
+if ($p2.DisplayName -ne "Ismail-Banani") {
+    throw "Test Failed: Expected DisplayName 'Ismail-Banani' for Md. Ismail Hossain but got '$($p2.DisplayName)'"
+}
+if ($p2.AccountName -ne "1020- Md. Ismail Hossain[Banani]") {
+    throw "Test Failed: Expected AccountName '1020- Md. Ismail Hossain[Banani]' but got '$($p2.AccountName)'"
+}
+
+# Test 5c: Embedded location tag inside FullName (Ismail Hossain Saihan[IT])
+$p3 = Get-DerivedVoipProfile -Extension "1054" -FullName "Ismail Hossain Saihan[IT]" -Location "" -Password "pass3"
+if ($p3.AccountName -ne "1054- Ismail Hossain Saihan[IT]") {
+    throw "Test Failed: Expected AccountName '1054- Ismail Hossain Saihan[IT]' from embedded tag but got '$($p3.AccountName)'"
+}
+if ($p3.DisplayName -ne "Ismail-IT") {
+    throw "Test Failed: Expected DisplayName 'Ismail-IT' from embedded tag but got '$($p3.DisplayName)'"
+}
+
+# Test 6: Set-MicroSipConfig auto-derives from -FullName and -Location without manual override
+$testIniPathDerived = Join-Path $testIniDir "MicroSIP_Derived.ini"
+Set-MicroSipConfig -IniPath $testIniPathDerived `
+                   -Extension "1054" `
+                   -FullName "Ismail Hossain Saihan" `
+                   -Location "IT" `
+                   -Password "Pass123"
+
+$derivedContent = Get-Content $testIniPathDerived -Raw
+if ($derivedContent -notmatch "label=1054- Ismail Hossain Saihan\[IT\]") {
+    throw "Test Failed: Auto-derived label missing in MicroSIP_Derived.ini"
+}
+if ($derivedContent -notmatch "displayName=Ismail-IT") {
+    throw "Test Failed: Auto-derived displayName missing in MicroSIP_Derived.ini"
+}
+if ($derivedContent -notmatch "name=Ismail-IT") {
+    throw "Test Failed: Auto-derived name missing in MicroSIP_Derived.ini"
+}
 
 # Cleanup
 Remove-Item $testIniDir -Recurse -Force
