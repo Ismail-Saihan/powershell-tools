@@ -39,6 +39,13 @@ $global:RemoteToolsConfig = @{
     MicroSipUrl       = "https://www.microsip.org/download/MicroSIP-3.21.3.exe"
 }
 
+# Printer Drivers Definition Catalog
+$global:PrinterDrivers = @{
+    "1" = @{ Name = "Gprinter Driver"; Filename = "Gprinter Driver.exe"; Description = "Gprinter Thermal/Barcode Printer Driver" }
+    "2" = @{ Name = "Rongta Driver"; Filename = "Rongta Driver.exe"; Description = "Rongta Receipt/Label Printer Driver" }
+    "3" = @{ Name = "Dotmax Driver"; Filename = "Dotmax Printer Driver.exe"; Description = "Dotmax Dot Matrix/POS Printer Driver" }
+}
+
 # Embedded Base64 for IPTSP VPN Profile (offline/portable fallback)
 $global:EmbeddedIptspOvpn = "ZGV2IHR1bgpwZXJzaXN0LXR1bgpwZXJzaXN0LWtleQpkYXRhLWNpcGhlcnMgQUVTLTI1Ni1HQ006QUVTLTEyOC1HQ006Q0hBQ0hBMjAtUE9MWTEzMDU6QUVTLTI1Ni1DQkMKZGF0YS1jaXBoZXJzLWZhbGxiYWNrIEFFUy0yNTYtQ0JDCmF1dGggU0hBMjU2CnRscy1jbGllbnQKY2xpZW50CnJlc29sdi1yZXRyeSBpbmZpbml0ZQpyZW1vdGUgMTgyLjE2My4xMjYuMjUzIDExOTQgdWRwNApub2JpbmQKdmVyaWZ5LXg1MDktbmFtZSAiQ2FycnkgQmVlIiBuYW1lCmF1dGgtdXNlci1wYXNzCnJlbW90ZS1jZXJ0LXRscyBzZXJ2ZXIKZXhwbGljaXQtZXhpdC1ub3RpZnkKCjxjYT4KLS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUVLVENDQXhHZ0F3SUJBZ0lJQlJnVGIrWTFDdzB3RFFZSktvWklodmNOQVFFTEJRQXdaekVVTUJJR0ExVUUKQXhNTGFXNTBaWEp1WVd3dFkyRXhDekFKQmdOVkJBWVRBa0pFTVE0d0RBWURWUVFJRXdWRWFHRnJZVEVRTUE0RwpBMVVFQnhNSFVtOWhaQzB5TWpFU01CQUdBMVVFQ2hNSlEyRnljbmtnUW1WbE1Rd3dDZ1lEVlFRTEV3TXhNREF3CkhoY05NalV4TURJNU1EWXpNekExV2hjTk16VXhNREkzTURZek16QTFXakJuTVJRd0VnWURWUVFERXd0cGJuUmwKY201aGJDMWpZVEVMTUFrR0ExVUVCaE1DUWtReERqQU1CZ05WQkFnVEJVUm9ZV3RoTVJBd0RnWURWUVFIRXdkUwpiMkZrTFRJeU1SSXdFQVlEVlFRS0V3bERZWEp5ZVNCQ1pXVXhEREFLQmdOVkJBc1RBekV3TURDQ0FTSXdEUVlKCktvWklodmNOQVFFQkJRQURnZ0VQQURDQ0FRb0NnZ0VCQUtjTVJQMk1LbU51QkZDN0pZN2N5VmloMHpSd010aTQKMkJOMW11aDNmOG1UdWk1Wm54ZlBwc0FCNDIrSW1KN3g4emQ4elB0bkJHOHhyUWtKdk1oZjBjQ3R2MzVJRVNkSwp2R0ljcGpla3Vray9TRjk0dE5JUEZBSWg3SHZ3QWpVOHZGajFGTWlDeHpQdUp6NlVXY0l0eE1qN3lQYW9wbVduCkQxZUNYRGFGVUh6dVdmVzBBck9Ic0dGZjJPR1RKVVpKbkhMUWFWcENUVU5YL1l3UkJsY0RpMmxEOXRrelg1ZHgKTStjdzNnZ3ozTUZ4OUU4SEV2SzFDQVN4eXRZeDZhYnFraTF0QzR3cjVZSzJPU0pZSWVGMllHRTVDRDdvczlzNQpyQUllRHIzNUdYN3djRWVNZVpsUGxJaTNsWnZxZDlwamR3cFFIQnl3K1FNbnZ0OTdKNnF6NEVjQ0F3RUFBYU9CCjJEQ0IxVEFkQmdOVkhRNEVGZ1FVK1VqSkJjUWxMWitOY21tS0pJYlFWNDRsZExRd2daZ0dBMVVkSXdTQmtEQ0IKallBVStVakpCY1FsTForTmNtbUtKSWJRVjQ0bGRMU2hhNlJwTUdjeEZEQVNCZ05WQkFNVEMybHVkR1Z5Ym1GcwpMV05oTVFzd0NRWURWUVFHRXdKQ1JERU9NQXdHQTFVRUNCTUZSR2hoYTJFeEVEQU9CZ05WQkFjVEIxSnZZV1F0Ck1qSXhFakFRQmdOVkJBb1RDVU5oY25KNUlFSmxaVEVNTUFvR0ExVUVDeE1ETVRBd2dnZ0ZHQk52NWpVTERUQU0KQmdOVkhSTUVCVEFEQVFIL01Bc0dBMVVkRHdRRUF3SUJCakFOQmdrcWhraUc5dzBCQVFzRkFBT0NBUUVBWTZLZwpMeUhuRFNwYTZFaHgvWjRYMzU4YUpnUnM0S29HSm5zd0trekxBbE52ZHRyREVVL1k1dWs1Ukt3V0FJdjNaK2MrCnpZNFFpVzZxek5Hbm9BMmFESkRSTkxWWFJuN1dsZW1ZNW8wdjJNRzdIU0E0UXNNK0l5QlNOdUFJcUMvbUVDNVQKTi9MbHhNNWkrMVlXdlVMQXYwQUdkT3dhMi9XUUVpb0RNTTlxY0Vpcm9lWGNmbE9ZK3NVY3ZMalBtMnNWYmlzbwo0Mkx5a2E0c1oyeDZndWVSKzV1TnVSN3VOS0NIRWFXcTVRaERtNDB1YVBYOVRDZHlUS2JBUVkwa2tncjI2ZlhjClNxQkhkR1dHN3YzVmlTK0FCWWJ5NkE5MUtKRnpCZ1l5MCs1KzlybjQyV2dLQnRGZ1J2U2Z6QkZsellYaHRqaEYKeEZIQldEODZ3enZLQW9NOERBPT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo8L2NhPgo8Y2VydD4KLS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUVlekNDQTJPZ0F3SUJBZ0lCQWpBTkJna3Foa2lHOXcwQkFRc0ZBREJuTVJRd0VnWURWUVFERXd0cGJuUmwKY201aGJDMWpZVEVMTUFrR0ExVUVCaE1DUWtReERqQU1CZ05WQkFnVEJVUm9ZV3RoTVJBd0RnWURWUVFIRXdkUwpiMkZrTFRJeU1SSXdFQVlEVlFRS0V3bERZWEp5ZVNCQ1pXVXhEREFLQmdOVkJBc1RBekV3TURBZUZ3MHlOVEV3Ck1qa3dOalEyTlRWYUZ3MHpOVEV3TWpjd05qUTJOVFZhTUdReEN6QUpCZ05WQkFZVEFrSkVNUTR3REFZRFZRUUkKRXdWRWFHRnJZVEVRTUE0R0ExVUVCeE1IVW05aFpDMHlNakVTTUJBR0ExVUVDaE1KUTJGeWNua2dRbVZsTVF3dwpDZ1lEVlFRTEV3TXhNREF4RVRBUEJnTlZCQU1UQ0dOaGNuSjVZbVZsTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGCkFBT0NBUThBTUlJQkNnS0NBUUVBNEIzbEtLd0h1UUF4OHNCd3hqbDFSZE54VGhDZTJaUjlyQUo2RXRuVGZwV2YKRzN0S2tUVFM0aW9sakZOQ0RlZ2xlbEtkcmJMcVJHcks2WDhJa0JNRThEWlFlMkVzMFBGU2hsa05CTVAxZ0dtbApKZGlUSFpqL2VmWVd5NXhUNXRVSkg3azFCK3B6Q0JtYmU1V3RpQjQ5VjRUc3VDVjdDL2RzaTNIZHladW1EMmtZCjV3Sm9vZXpVL09SMEJpU0pDZytFMUhKWFJPRFk1dXZPeGJNSUNPVU1VSFJUTTJYSHM1eFFaYnRkNTMwRUl0cTMKZHRqUTBqQklhUnJnQ1pRQU5IMTU4bm1kdkhoejVXRnltVDFlL0xwU0JzYTVJM0ZETFV3emMzWkE1S3NrSFZVNwp5Y1VNK0RUdjF3VGFETlpFY0xwVkxOMWNGcU52UEdCUTdKcTUwNDZmblFJREFRQUJvNElCTXpDQ0FTOHdDUVlEClZSMFRCQUl3QURBTEJnTlZIUThFQkFNQ0JlQXdNUVlKWUlaSUFZYjRRZ0VOQkNRV0lrOXdaVzVUVTB3Z1IyVnUKWlhKaGRHVmtJRlZ6WlhJZ1EyVnlkR2xtYVdOaGRHVXdIUVlEVlIwT0JCWUVGR1huTG5keWxpbHAyS1ZSaEFYbAorTlZXdXoyOE1JR1lCZ05WSFNNRWdaQXdnWTJBRlBsSXlRWEVKUzJmalhKcGlpU0cwRmVPSlhTMG9XdWthVEJuCk1SUXdFZ1lEVlFRREV3dHBiblJsY201aGJDMWpZVEVMTUFrR0ExVUVCaE1DUWtReERqQU1CZ05WQkFnVEJVUm8KWVd0aE1SQXdEZ1lEVlFRSEV3ZFNiMkZrTFRJeU1SSXdFQVlEVlFRS0V3bERZWEp5ZVNCQ1pXVXhEREFLQmdOVgpCQXNUQXpFd01JSUlCUmdUYitZMUN3MHdFd1lEVlIwbEJBd3dDZ1lJS3dZQkJRVUhBd0l3RXdZRFZSMFJCQXd3CkNvSUlZMkZ5Y25saVpXVXdEUVlKS29aSWh2Y05BUUVMQlFBRGdnRUJBRnB6eitLWE1jT2FBY2llVEpHOEd2RkMKNVNOMXc4YVl5cUJrOTV3N1BFdWNjeGM0QVMyL0d6elZKOWZEellYMFhkR2xoSVpHTVYvVExkbE5vV2xtSTMvMwpvWVhpRXVHV3dRS2JNcXhxZzgxRmVlcnNidFVndjNmK1B5MzE4RE9pZWF5T3NNd1JzZ0Y0eXlXeitZU1pWNTRuCmg3dlVqVVNVZXNNUnBRMm1qczNLaEt1Yi80SGxCZzFkMldHdHZSK1hlSkNPbENBZ0hPcGg2amJGaVM5SXVkMWcKWWRMVEprVFFCR29uWkNobzFYU2h1YnNHTVFYYStvenNoeG91KzF0T0Rqb0RUdWFtWHZ1NW5DMFZGbnhrRm9McQpnR3ZUbGMvZ1M3MUQ0L3pTQWxFUmE5TWdYQmRhK2xrMHFTSnhKRTR0SjlyNXM1ZDR5aFI2RldtMzM5Q05UWjA9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0KPC9jZXJ0Pgo8a2V5PgotLS0tLUJFR0lOIFBSSVZBVEUgS0VZLS0tLS0KTUlJRXZRSUJBREFOQmdrcWhraUc5dzBCQVFFRkFBU0NCS2N3Z2dTakFnRUFBb0lCQVFEZ0hlVW9yQWU1QURIeQp3SERHT1hWRjAzRk9FSjdabEgyc0Fub1MyZE4rbFo4YmUwcVJOTkxpS2lXTVUwSU42Q1Y2VXAydHN1cEVhc3JwCmZ3aVFFd1R3TmxCN1lTelE4VktHV1EwRXcvV0FhYVVsMkpNZG1QOTU5aGJMbkZQbTFRa2Z1VFVINm5NSUdadDcKbGEySUhqMVhoT3k0SlhzTDkyeUxjZDNKbTZZUGFSam5BbWloN05UODVIUUdKSWtLRDRUVWNsZEU0TmptNjg3Rgpzd2dJNVF4UWRGTXpaY2V6bkZCbHUxM25mUVFpMnJkMjJORFNNRWhwR3VBSmxBQTBmWG55ZVoyOGVIUGxZWEtaClBWNzh1bElHeHJramNVTXRURE56ZGtEa3F5UWRWVHZKeFF6NE5PL1hCTm9NMWtSd3VsVXMzVndXbzI4OFlGRHMKbXJuVGpwK2RBZ01CQUFFQ2dnRUFLVVAzNU5SQUc4VTRiUzBYMXJmUHF3cXlxeUFPVDV1eXhCQTByL0hocWtZYwpaSy8vMjlxeEZhbVMvbEo2TUJ0Vmd6OWcveEdaWnYyTzNRMWg0ejFOUkhtTHVodjdaNEYzbzNzVUZaT0xTWmlxCkt0ekV3Y2RoQ3ZEUDQ2K21Gek9VbVgyOWtQYVBOYWVaWkZqNytic3Zxa1MwWFhleFAxUFFiYUNLcU10NitRMFYKbktKak1zSGN4b2hOVW42a3lXaG03ajBZK2JCcXpaRjJUb3pMbnhTV0tacUVTY29nOThrSXB0d1laQnBxWWJlYgpqbFRobE9hNWlKWHRHRVNDUVFQaXlXaEp6RkNjTkpZZkJnUUNtQmNnQjJ0N29hcGhScCsrWE1pay9uS3lnVzVmCnhuNFloTnVsb0M2VjR3WmRmNk5qNHFiZGRKT3hRZmVuOE9vZS9ONVZOUUtCZ1FENVE2UW4xV3E3aHpnaC80WmQKQmJZWktlOEVVWVdkMzVFZGVORi92QkNtZEdzdnVlaGJHRXdQWURRN2N5d0h1QkRIaHNZcDRmcmZhTXArNi9XZApsMEEzdy9NRXRJbVV2aFRJRk5uaGR3a2tEK0hlb2wwcFhzbEVaMHNXUDE4NVZFZkJpeWNPS3RDMkdMWkxOTXRXClRoS2lDY2JBZ0FQMFFoMUJGd0wzN3hhKy93S0JnUURtTEVuL0YrSW1MaUtJWjJhZ0dvNnBxZUE5bk9zcHdwZFoKUExFZHpkVTl4OU1ndGN1RmVPeVR3d3U0NS9aNUdCMVpMNlVEOHZCWXM1ekg2ejNqakJMUHpsdHJ6eXl6dVBRMQpVcjYrYXB0TjhlWEpNSkZhenhybGNuemtHcTlmbk8yaExUNnlwRkRqZDFGQU5XZHY3WTU4UU5ZOVVqNklLTVJPCkM2V2lUY0E5WXdLQmdGVnJ1OGEyMlhQWWZBRVNxejRYcGZicnF2Qms2NUJWdkVwSVRDc2xET091UThsQVFZTnUKU1NwL3dvYVpDbjYrc21sZUkyelk5M3MyVXlhNXdCczRhUlp6UFVYZ2hNR0hmbUd1MjVmcmppTmdtZndNMGpaSwpPRmtMdU95djNQY3RqY1dpNVVoeW5jRzVxRWNQbVp0QytCbTFsZm9FSk5iQkRYdHY0bUdLK3RXTEFvR0JBT1U2CmJtY3liZk1BTnp3SlhsZE1tNCswc3JJcHVMbmFKY2lsZk83bHN0ellTUmRtZGMzelpBaTBVdFJQajFPQ0JKaHgKcnJHRUhJRDZQOFdLTGhTVHg1aFZOdzdqUU8ycjRPbktBbFM0N3ZwdFVoOVAwekxRMTBSekJKWlhUUmkzdktDcgo0cWtlbzhBbGNERzEvZEdta0NTR25kWnNOZ0o4TnlSU3pSNGF1TDFwQW9HQU5DUFo1SGxJM0JIRjhoNFdPMjFpClVQck1IMFhTVEdYY0tHVkVBWFhKeUQ1Tk9adlNMWHJXWEtBV0ZWMHQ3K0tGamRRNVp2blFralNPeGFzM0c2UU0KRElkeXhiTmRzVXZlNWIxa1JZU0JJYis3dlc5dDJnNFd0YnNDV01sbHM4TEdmREl1WGJKZVV5T0RKRVVscDBWRApUK0NNaGlqR3d0S0ZsRnRtQS9kUlFXQT0KLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo8L2tleT4Ka2V5LWRpcmVjdGlvbiAxCjx0bHMtYXV0aD4KIwojIDIwNDggYml0IE9wZW5WUE4gc3RhdGljIGtleQojCi0tLS0tQkVHSU4gT3BlblZQTiBTdGF0aWMga2V5IFYxLS0tLS0KMDkzOWI1ZjNlYjY3YjY3YTljZjgxYjUyMWIyMWMxNTYKNGIzZTg5MTk3MWNiYTkyYTFkMzUzZjRiYjYyNDJmNTAKODUzYjljNGUxMGY5M2UyYTViYzAwZDUyOThmZmY0ZTEKOWU2M2MzOTg4Y2U1MWJkMTEwZmMzM2IxNTMyOWU3YTkKZDZiOGU4NDNkOWVmMDEzOWI2ZGUzODgxYzFlMThjNDMKOTYxZmU1YjQ2ZGVlMmZjY2Y3ZDM5OWU3MDljNTk5MzMKNDY2NjEyZTdlZGJlNWFmMjkyYzUwMzFjMDA3ZDA4NGEKZTQ0MTExZGViMTc3ZGNhZDdjZGZjMDFmOGI5Zjc5NGQKZTU4NDZiNTUyNWJiMWE2MDEwYWFlYWU4Nzk1M2I1ODAKMmQyYTQwODRlMmU5Y2E0NDYzYTU1YjExNjJkZGJhMWMKMDQ0NmJjZjVlMTM5YWEzMGFlOTA3MDhhNDJiYzJkOWQKOTI1MDRmMDFmYzNhMjJkZjdhYzUyNTI4Yjc2ZDMwZWMKYjE2NGVhM2I4ZGI0ODlhNTM4YzgxODgzNmFiYTY3MzMKOTk0ZTEzYzA0MjNkNTFhMjYzZDViOTFlMmYxZTdkY2IKNzIwNWUxZDBlOWFiZDlkZjI2ZjVkNjY4NDIyMjAyNTUKMTkxODE4NGU3YzA4Yzg2NWZhNThjZjU2Y2U1OGY4YjAKLS0tLS1FTkQgT3BlblZQTiBTdGF0aWMga2V5IFYxLS0tLS0KPC90bHMtYXV0aD4K"
 
@@ -396,6 +403,63 @@ function Install-VoipModule {
     return $true
 }
 
+function Install-PrinterDriver {
+    param(
+        [Parameter(Mandatory=$true)][hashtable]$DriverInfo
+    )
+    Write-Host "`n--- Installing $($DriverInfo.Name) ---" -ForegroundColor Cyan
+    
+    # Check if file is available locally in script directory
+    $localPath = Join-Path $PSScriptRoot "Printer Driver\$($DriverInfo.Filename)"
+    $targetExe = $null
+
+    if (Test-Path $localPath) {
+        Write-Host "  -> Using local driver installer: $localPath" -ForegroundColor Green
+        $targetExe = $localPath
+    } else {
+        $destPath = Join-Path $global:RemoteToolsConfig.TempDir $DriverInfo.Filename
+        $url = Get-ReleaseAssetUrl -Filename $DriverInfo.Filename
+        
+        $downloadOk = Invoke-DownloadWithProgress -Url $url -DestinationPath $destPath -Description $DriverInfo.Description
+        if (-not $downloadOk) {
+            Write-Error "Failed to download $($DriverInfo.Name)."
+            return $false
+        }
+        $targetExe = $destPath
+    }
+
+    Write-Host "`n  -> Launching vendor setup wizard: $(Split-Path $targetExe -Leaf)" -ForegroundColor Yellow
+    Write-Host "     Please complete the setup steps in the wizard window." -ForegroundColor DarkGray
+    
+    $proc = Start-Process -FilePath $targetExe -Wait -PassThru
+    Write-Host "  [OK] Driver wizard completed with exit code: $($proc.ExitCode)" -ForegroundColor Green
+    return $true
+}
+
+function Show-PrinterDriverMenu {
+    do {
+        Show-Header
+        Write-Host "--- [3] Install Printer Driver ---" -ForegroundColor Cyan
+        Write-Host "Select the printer driver to install:`n" -ForegroundColor Yellow
+        Write-Host "  [1] Gprinter Driver (Barcode & Label Printer)" -ForegroundColor White
+        Write-Host "  [2] Rongta Driver (Receipt & POS Printer)" -ForegroundColor White
+        Write-Host "  [3] Dotmax Driver (Dot Matrix & Form Printer)" -ForegroundColor White
+        Write-Host "  [4] Return to Main Menu" -ForegroundColor Red
+        Write-Host ""
+
+        $driverChoice = Read-Host "Enter driver option [1-4]"
+        if ($global:PrinterDrivers.ContainsKey($driverChoice)) {
+            $null = Install-PrinterDriver -DriverInfo $global:PrinterDrivers[$driverChoice]
+            Write-Host "`nPress Enter to return to Printer Drivers menu..."; [void][System.Console]::ReadLine()
+        } elseif ($driverChoice -eq "4") {
+            break
+        } else {
+            Write-Host "Invalid option. Please choose between 1 and 4." -ForegroundColor Red
+            Start-Sleep -Seconds 1
+        }
+    } while ($driverChoice -ne "4")
+}
+
 function Show-MainMenu {
     Show-Header
     Write-Host "Select an option from the menu below:" -ForegroundColor Yellow
@@ -422,7 +486,7 @@ if (-not $TestMode) {
         switch ($choice) {
             "1" { $null = Install-OpenVPNModule; Write-Host "`nPress Enter to return to menu..."; [void][System.Console]::ReadLine() }
             "2" { $null = Install-VoipModule; Write-Host "`nPress Enter to return to menu..."; [void][System.Console]::ReadLine() }
-            "3" { Write-Host "`nFeature 3 selected" -ForegroundColor Cyan; Start-Sleep -Seconds 1 }
+            "3" { Show-PrinterDriverMenu }
             "4" { Write-Host "`nFeature 4 selected" -ForegroundColor Cyan; Start-Sleep -Seconds 1 }
             "5" { Write-Host "`nExiting Remote Tools. Goodbye!" -ForegroundColor Green; break }
             default { Write-Host "Invalid option. Please choose between 1 and 5." -ForegroundColor Red; Start-Sleep -Seconds 1 }
