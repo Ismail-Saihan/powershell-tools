@@ -88,7 +88,9 @@ function Invoke-SelfElevation {
 
 function Get-ReleaseAssetUrl {
     param([string]$Filename)
-    return "https://github.com/$($global:RemoteToolsConfig.GitHubUser)/$($global:RemoteToolsConfig.GitHubRepo)/releases/download/$($global:RemoteToolsConfig.ReleaseTag)/$Filename"
+    # GitHub release assets replace spaces with dots
+    $sanitized = $Filename -replace ' ', '.'
+    return "https://github.com/$($global:RemoteToolsConfig.GitHubUser)/$($global:RemoteToolsConfig.GitHubRepo)/releases/download/$($global:RemoteToolsConfig.ReleaseTag)/$sanitized"
 }
 
 function Invoke-DownloadWithProgress {
