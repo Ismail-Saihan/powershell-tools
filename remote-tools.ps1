@@ -415,8 +415,20 @@ function Install-VoipModule {
         }
 
         Write-Host "  -> Installing MicroSIP silently..." -ForegroundColor Cyan
-        $proc = Start-Process -FilePath $installerDest -ArgumentList "/S" -Wait -PassThru
+        $proc = Start-Process -FilePath $installerDest -ArgumentList "/S" -PassThru
+        
+        # Wait up to 15 seconds for installer file extraction
+        $waited = 0
+        while (-not $proc.HasExited -and $waited -lt 15) {
+            Start-Sleep -Seconds 1
+            $waited++
+        }
+
+        # MicroSIP installer automatically spawns microsip.exe upon finish.
+        # Terminate this background instance so it does not lock MicroSIP.ini or hang PowerShell.
         Start-Sleep -Seconds 2
+        Get-Process microsip -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
 
         # Re-check paths after install
         foreach ($p in $possiblePaths) {
