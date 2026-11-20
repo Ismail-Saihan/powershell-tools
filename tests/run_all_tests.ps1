@@ -23,6 +23,9 @@ foreach ($test in $testFiles) {
     Write-Host "`n>>> Running: $test ..." -ForegroundColor Yellow
     try {
         & powershell -ExecutionPolicy Bypass -File $fullPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "Script exited with code $LASTEXITCODE"
+        }
         $passed++
     } catch {
         Write-Error "Test $test FAILED: $($_.Exception.Message)"
@@ -49,5 +52,6 @@ if ($failed -eq 0) {
     Write-Host " ALL TESTS PASSED! ($passed suites passed, 0 failures)" -ForegroundColor Green
 } else {
     Write-Error "TEST RUN FAILED! ($passed passed, $failed failures)"
+    exit 1
 }
 Write-Host "==================================================================" -ForegroundColor Cyan

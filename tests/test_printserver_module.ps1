@@ -15,6 +15,12 @@ if ($content -notmatch "function Add-PrintServerDefenderExclusions") {
 if ($content -notmatch "function Register-PrintServerStartup") {
     throw "Test Failed: Register-PrintServerStartup function missing"
 }
+if ($content -notmatch "function Stop-PrintServerGracefully") {
+    throw "Test Failed: Stop-PrintServerGracefully function missing"
+}
+if ($content -notmatch "function Test-PortAvailability") {
+    throw "Test Failed: Test-PortAvailability function missing"
+}
 
 # Source script in test mode
 . $ScriptPath -TestMode
@@ -26,17 +32,41 @@ $null = New-Item -ItemType Directory -Path $testDir -Force
 $testExe = Join-Path $testDir "print_server.exe"
 [System.IO.File]::WriteAllText($testExe, "Mock Print Server")
 
-# Test startup registration logic with custom target
+# 1. Test startup registration logic with direct .lnk shortcut (WindowStyle = 7, no VBScript)
 $startupLnk = Register-PrintServerStartup -TargetExe $testExe -TargetDir $testDir -TestOnly
-
-$vbsPath = Join-Path $testDir "start_minimized.vbs"
-if (-not (Test-Path $vbsPath)) {
-    throw "Test Failed: Minimized VBScript runner was not created"
+if (-not (Test-Path $startupLnk)) {
+    throw "Test Failed: Direct startup .lnk shortcut was not created: $startupLnk"
 }
 
-$vbsContent = Get-Content $vbsPath -Raw
-if ($vbsContent -notmatch "print_server\.exe") {
-    throw "Test Failed: VBScript runner does not reference print_server.exe"
+$vbsPath = Join-Path $testDir "start_minimized.vbs"
+if (Test-Path $vbsPath) {
+    throw "Test Failed: VBScript launcher was created (ASR rule violation)"
+}
+
+$wshShell = New-Object -ComObject WScript.Shell
+$sc = $wshShell.CreateShortcut($startupLnk)
+$canonicalActual = (Get-Item $sc.TargetPath).FullName
+$canonicalExpected = (Get-Item $testExe).FullName
+if ($canonicalActual -ne $canonicalExpected) {
+    throw "Test Failed: Shortcut TargetPath mismatch ($canonicalActual vs $canonicalExpected)"
+}
+if ($sc.WindowStyle -ne 7) {
+    throw "Test Failed: Shortcut WindowStyle is not 7 (minimized)"
+}
+
+# 2. Test Stop-PrintServerGracefully
+$stopped = Stop-PrintServerGracefully -TimeoutSeconds 1
+if (-not $stopped) {
+    throw "Test Failed: Stop-PrintServerGracefully did not return true"
+}
+
+# 3. Test Test-PortAvailability on high unused port
+$portStatus = Test-PortAvailability -Port 59876
+if ($null -eq $portStatus -or -not $portStatus.ContainsKey("Available")) {
+    throw "Test Failed: Test-PortAvailability did not return expected hashtable"
+}
+if (-not $portStatus.Available) {
+    throw "Test Failed: High test port 59876 should be available"
 }
 
 # Cleanup

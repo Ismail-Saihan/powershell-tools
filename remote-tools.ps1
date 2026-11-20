@@ -54,6 +54,21 @@ $global:EmbeddedIptspOvpn = "ZGV2IHR1bgpwZXJzaXN0LXR1bgpwZXJzaXN0LWtleQpkYXRhLWN
 # Core Helper Functions
 # -------------------------------------------------------------------------
 
+function Wait-UserPrompt {
+    <#
+    .SYNOPSIS
+        Universal prompt helper replacing legacy Console ReadLine (HOST-01).
+        Gracefully handles non-interactive hosts, redirected streams, and PowerShell ISE.
+    #>
+    param([string]$Message = "Press Enter to return...")
+    Write-Host "`n$Message" -ForegroundColor Yellow
+    try {
+        $null = Read-Host
+    } catch {
+        Start-Sleep -Seconds 2
+    }
+}
+
 function Test-IsAdmin {
     <#
     .SYNOPSIS
@@ -67,23 +82,26 @@ function Test-IsAdmin {
 function Invoke-SelfElevation {
     <#
     .SYNOPSIS
-        Re-launches the current script as Administrator via UAC.
+        Re-launches the current script as Administrator via UAC (EL-01).
+        Correctly detects the script path from disk or falls back to Web-download.
     #>
     Write-Host "`n[!] Administrator privileges required. Requesting elevation via UAC..." -ForegroundColor Yellow
     
     $powershellExe = (Get-Process -Id $PID).Path
-    $scriptContent = $MyInvocation.MyCommand.Definition
-
-    if ($scriptContent -and (Test-Path $scriptContent)) {
+    $scriptPath = $PSCommandPath
+    if (-not $scriptPath -and $MyInvocation.ScriptName) { $scriptPath = $MyInvocation.ScriptName }
+    
+    if ($scriptPath -and (Test-Path $scriptPath)) {
         # Script was executed from a saved file
-        Start-Process -FilePath $powershellExe -Verb RunAs -ArgumentList "-NoExit -ExecutionPolicy Bypass -File `"$scriptContent`""
+        Start-Process -FilePath $powershellExe -Verb RunAs -ArgumentList "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`""
+        Exit
     } else {
         # Script was executed in-memory via irm | iex
         $downloadUrl = "https://raw.githubusercontent.com/$($global:RemoteToolsConfig.GitHubUser)/$($global:RemoteToolsConfig.GitHubRepo)/main/remote-tools.ps1"
         $command = "irm $downloadUrl | iex"
         Start-Process -FilePath $powershellExe -Verb RunAs -ArgumentList "-NoExit -ExecutionPolicy Bypass -Command `"$command`""
+        Exit
     }
-    Exit
 }
 
 function Get-ReleaseAssetUrl {
@@ -94,10 +112,19 @@ function Get-ReleaseAssetUrl {
 }
 
 function Invoke-DownloadWithProgress {
+    <#
+    .SYNOPSIS
+        Resilient web file downloader supporting multi-mirror fallbacks, exponential backoff,
+        and system proxy authentication (NET-01, NET-02, NET-03).
+    #>
     param(
-        [Parameter(Mandatory=$true)][string]$Url,
-        [Parameter(Mandatory=$true)][string]$DestinationPath,
-        [string]$Description = "File"
+        [Parameter(Mandatory=$true, Position=0)]
+        [Alias("Url")]
+        [string[]]$Urls,
+        [Parameter(Mandatory=$true, Position=1)]
+        [string]$DestinationPath,
+        [string]$Description = "File",
+        [int]$MaxRetries = 3
     )
 
     $parentDir = Split-Path -Parent $DestinationPath
@@ -105,33 +132,54 @@ function Invoke-DownloadWithProgress {
         $null = New-Item -ItemType Directory -Path $parentDir -Force
     }
 
-    # If already downloaded and valid, return
+    # If already downloaded and valid, return cached file
     if ((Test-Path $DestinationPath) -and ((Get-Item $DestinationPath).Length -gt 0)) {
         Write-Host "  -> Cached file found: $(Split-Path $DestinationPath -Leaf)" -ForegroundColor Green
         return $true
     }
 
-    $tempDest = "$DestinationPath.download"
-    if (Test-Path $tempDest) { Remove-Item $tempDest -Force }
+    foreach ($currentUrl in $Urls) {
+        if ([string]::IsNullOrWhiteSpace($currentUrl)) { continue }
+        Write-Host "  -> Attempting download of $Description from:" -ForegroundColor Cyan
+        Write-Host "     $currentUrl" -ForegroundColor DarkGray
 
-    Write-Host "  -> Downloading $Description from:" -ForegroundColor Cyan
-    Write-Host "     $Url" -ForegroundColor DarkGray
+        for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
+            $tempDest = "$DestinationPath.download"
+            if (Test-Path $tempDest) { Remove-Item $tempDest -Force }
 
-    try {
-        $webClient = New-Object System.Net.WebClient
-        # Attach event for download progress
-        $webClient.Headers.Add("User-Agent", "RemoteTools-PowerShell/1.0")
-        $webClient.DownloadFile($Url, $tempDest)
-        $webClient.Dispose()
+            try {
+                $webClient = New-Object System.Net.WebClient
+                $webClient.Headers.Add("User-Agent", "RemoteTools-PowerShell/1.0")
+                
+                # System proxy and credential cache integration (NET-03)
+                $webClient.Proxy = [System.Net.WebRequest]::GetSystemWebProxy()
+                $webClient.Proxy.Credentials = [System.Net.CredentialCache]::DefaultNetworkCredentials
 
-        Move-Item -Path $tempDest -Destination $DestinationPath -Force
-        Write-Host "  [OK] Download completed successfully: $(Split-Path $DestinationPath -Leaf)" -ForegroundColor Green
-        return $true
-    } catch {
-        if (Test-Path $tempDest) { Remove-Item $tempDest -Force }
-        Write-Warning "Failed to download $Description. Error: $($_.Exception.Message)"
-        return $false
+                $webClient.DownloadFile($currentUrl, $tempDest)
+                $webClient.Dispose()
+
+                if ((Test-Path $tempDest) -and ((Get-Item $tempDest).Length -gt 0)) {
+                    Move-Item -Path $tempDest -Destination $DestinationPath -Force
+                    Write-Host "  [OK] Download completed successfully: $(Split-Path $DestinationPath -Leaf)" -ForegroundColor Green
+                    return $true
+                } else {
+                    throw "Downloaded file was 0 bytes."
+                }
+            } catch {
+                if (Test-Path $tempDest) { Remove-Item $tempDest -Force }
+                Write-Warning "Attempt $attempt of $MaxRetries failed for ${currentUrl}: $($_.Exception.Message)"
+                if ($attempt -lt $MaxRetries) {
+                    $backoffSeconds = $attempt * 2
+                    Write-Host "     Retrying in $backoffSeconds seconds..." -ForegroundColor DarkGray
+                    Start-Sleep -Seconds $backoffSeconds
+                }
+            }
+        }
+        Write-Warning "All $MaxRetries attempts failed for mirror: $currentUrl"
     }
+
+    Write-Error "Failed to download $Description from all configured mirrors."
+    return $false
 }
 
 function Show-Header {
@@ -158,6 +206,11 @@ function Write-WritePrompt {
 }
 
 function Test-NetworkPort {
+    <#
+    .SYNOPSIS
+        Tests TCP socket connectivity without handle leaks (SYS-01).
+        TcpClient and WaitHandle are guaranteed closed in a finally block.
+    #>
     param(
         [Parameter(Mandatory=$true)][string]$TargetHost,
         [Parameter(Mandatory=$true)][int]$Port,
@@ -167,19 +220,24 @@ function Test-NetworkPort {
     if (-not $Quiet) {
         Write-Host "  -> Testing connection to $TargetHost`:$Port..." -ForegroundColor Cyan
     }
+    
+    $tcpClient = $null
+    $asyncResult = $null
+    $waitHandle = $null
+
     try {
         $tcpClient = New-Object System.Net.Sockets.TcpClient
-        $connect = $tcpClient.BeginConnect($TargetHost, $Port, $null, $null)
-        $wait = $connect.AsyncWaitHandle.WaitOne($TimeoutSeconds * 1000, $false)
-        if ($wait -and $tcpClient.Connected) {
-            $tcpClient.EndConnect($connect)
-            $tcpClient.Close()
+        $asyncResult = $tcpClient.BeginConnect($TargetHost, $Port, $null, $null)
+        $waitHandle = $asyncResult.AsyncWaitHandle
+        $waitSuccess = $waitHandle.WaitOne($TimeoutSeconds * 1000, $false)
+
+        if ($waitSuccess -and $tcpClient.Connected) {
+            $tcpClient.EndConnect($asyncResult)
             if (-not $Quiet) {
                 Write-Host "  [OK] Connection SUCCESSFUL to $TargetHost`:$Port (Port OPEN)" -ForegroundColor Green
             }
             return $true
         } else {
-            $tcpClient.Close()
             if (-not $Quiet) {
                 Write-Host "  [FAIL] Connection TIMED OUT to $TargetHost`:$Port" -ForegroundColor Red
             }
@@ -190,7 +248,154 @@ function Test-NetworkPort {
             Write-Host "  [FAIL] Could not reach $TargetHost`:$Port ($($_.Exception.Message))" -ForegroundColor Red
         }
         return $false
+    } finally {
+        if ($waitHandle) {
+            try { $waitHandle.Close() } catch { }
+        }
+        if ($tcpClient) {
+            try { $tcpClient.Close() } catch { }
+        }
     }
+}
+
+function Test-PortAvailability {
+    <#
+    .SYNOPSIS
+        Checks if a local TCP port is free or bound, reporting owning process information (PROC-01).
+    #>
+    param(
+        [Parameter(Mandatory=$true)][int]$Port,
+        [switch]$ReportProcess
+    )
+    $owningProcessId = $null
+    $processName = $null
+
+    try {
+        if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
+            $conn = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($conn) {
+                $owningProcessId = $conn.OwningProcess
+            }
+        }
+    } catch { }
+
+    if (-not $owningProcessId) {
+        try {
+            $netstatOut = netstat -ano | Select-String ":$Port\s"
+            if ($netstatOut) {
+                $line = ($netstatOut | Select-Object -First 1).ToString().Trim()
+                $tokens = $line -split '\s+'
+                $pidCandidate = $tokens[-1]
+                if ($pidCandidate -match '^\d+$') {
+                    $owningProcessId = [int]$pidCandidate
+                }
+            }
+        } catch { }
+    }
+
+    if ($owningProcessId -and $owningProcessId -gt 0) {
+        try {
+            $p = Get-Process -Id $owningProcessId -ErrorAction SilentlyContinue
+            if ($p) {
+                $processName = $p.ProcessName
+            }
+        } catch { }
+
+        if ($ReportProcess) {
+            $procDesc = if ($processName) { "$processName (PID: $owningProcessId)" } else { "PID: $owningProcessId" }
+            Write-Host "  [WARN] Port $Port is currently OCCUPIED by $procDesc" -ForegroundColor Yellow
+        }
+        return @{
+            Available       = $false
+            Port            = $Port
+            OwningProcessId = $owningProcessId
+            ProcessName     = $processName
+        }
+    } else {
+        return @{
+            Available       = $true
+            Port            = $Port
+            OwningProcessId = $null
+            ProcessName     = $null
+        }
+    }
+}
+
+function Stop-PrintServerGracefully {
+    <#
+    .SYNOPSIS
+        Gracefully requests print_server to exit, force terminates if needed,
+        and waits until file locks are completely released (PS-01).
+    #>
+    [CmdletBinding()]
+    param(
+        [int]$TimeoutSeconds = 5
+    )
+
+    $procs = Get-Process -Name "print_server" -ErrorAction SilentlyContinue
+    if (-not $procs) {
+        return $true
+    }
+
+    Write-Host "  -> Terminating running print_server process(es) to release file locks..." -ForegroundColor Yellow
+    foreach ($proc in $procs) {
+        try {
+            $null = $proc.CloseMainWindow()
+        } catch { }
+    }
+
+    $waited = 0
+    while ($waited -lt $TimeoutSeconds) {
+        $remaining = Get-Process -Name "print_server" -ErrorAction SilentlyContinue
+        if (-not $remaining) {
+            Write-Host "  [OK] print_server process exited gracefully." -ForegroundColor Green
+            Start-Sleep -Milliseconds 500
+            return $true
+        }
+        Start-Sleep -Seconds 1
+        $waited++
+    }
+
+    # Force kill if still running after timeout
+    $forceProcs = Get-Process -Name "print_server" -ErrorAction SilentlyContinue
+    if ($forceProcs) {
+        Write-Host "  -> Force terminating print_server process(es)..." -ForegroundColor Yellow
+        $forceProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+    }
+
+    $finalCheck = Get-Process -Name "print_server" -ErrorAction SilentlyContinue
+    if (-not $finalCheck) {
+        Write-Host "  [OK] print_server terminated and file lock released." -ForegroundColor Green
+        return $true
+    } else {
+        Write-Warning "Could not terminate print_server process (PID(s): $($finalCheck.Id -join ', '))."
+        return $false
+    }
+}
+
+# -------------------------------------------------------------------------
+# OpenVPN Module
+# -------------------------------------------------------------------------
+
+function Get-OpenVpnGuiPath {
+    <#
+    .SYNOPSIS
+        Detects OpenVPN GUI across 64-bit and 32-bit Program Files directories (ENV-03).
+    #>
+    $candidates = @(
+        "C:\Program Files\OpenVPN\bin\openvpn-gui.exe",
+        "C:\Program Files (x86)\OpenVPN\bin\openvpn-gui.exe"
+    )
+    if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles "OpenVPN\bin\openvpn-gui.exe") }
+    if (${env:ProgramFiles(x86)}) { $candidates += (Join-Path ${env:ProgramFiles(x86)} "OpenVPN\bin\openvpn-gui.exe") }
+
+    foreach ($path in ($candidates | Select-Object -Unique)) {
+        if ($path -and (Test-Path $path)) {
+            return $path
+        }
+    }
+    return $null
 }
 
 function Deploy-OpenVpnConfig {
@@ -218,15 +423,18 @@ function Deploy-OpenVpnConfig {
 function Install-OpenVPNModule {
     Write-Host "`n=== [1] OpenVPN Setup & Profile Deployment ===" -ForegroundColor Cyan
 
-    $openVpnGuiPath = "C:\Program Files\OpenVPN\bin\openvpn-gui.exe"
-    $isInstalled = Test-Path $openVpnGuiPath
+    $openVpnGuiPath = Get-OpenVpnGuiPath
 
-    if (-not $isInstalled) {
+    if (-not $openVpnGuiPath) {
         Write-Host "  -> OpenVPN Client is not installed. Preparing installation..." -ForegroundColor Yellow
         $msiDest = Join-Path $global:RemoteToolsConfig.TempDir "OpenVPN-Client.msi"
         
-        # Try downloading OpenVPN installer
-        $downloadSuccess = Invoke-DownloadWithProgress -Url $global:RemoteToolsConfig.OpenVpnMsiUrl -DestinationPath $msiDest -Description "OpenVPN Community Client MSI"
+        # Download with mirror fallback (NET-01, NET-02)
+        $openVpnMirrors = @(
+            $global:RemoteToolsConfig.OpenVpnMsiUrl,
+            (Get-ReleaseAssetUrl -Filename "OpenVPN-2.6.12-I001-amd64.msi")
+        )
+        $downloadSuccess = Invoke-DownloadWithProgress -Urls $openVpnMirrors -DestinationPath $msiDest -Description "OpenVPN Community Client MSI"
         if (-not $downloadSuccess) {
             Write-Error "Failed to download OpenVPN installer. Please check your internet connection."
             return $false
@@ -239,31 +447,66 @@ function Install-OpenVPNModule {
         } else {
             Write-Host "  [OK] OpenVPN Client installed successfully!" -ForegroundColor Green
         }
+        $openVpnGuiPath = Get-OpenVpnGuiPath
+        if (-not $openVpnGuiPath) {
+            $openVpnGuiPath = "C:\Program Files\OpenVPN\bin\openvpn-gui.exe"
+        }
     } else {
-        Write-Host "  [OK] OpenVPN Client is already installed." -ForegroundColor Green
+        Write-Host "  [OK] OpenVPN Client is already installed at: $openVpnGuiPath" -ForegroundColor Green
     }
 
-    # Deploy configuration profile to user directory and program files
-    $userConfigDir = Join-Path $env:USERPROFILE "OpenVPN\config"
-    $sysConfigDir = "C:\Program Files\OpenVPN\config"
-    
-    $null = Deploy-OpenVpnConfig -TargetDirectory $userConfigDir
-    if (Test-Path "C:\Program Files\OpenVPN") {
-        $null = Deploy-OpenVpnConfig -TargetDirectory $sysConfigDir
-    }
-
-    # Ensure desktop shortcut
+    # Ensure OpenVPN Interactive Service is Automatic and Running for non-admin users (ENV-03)
     try {
-        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        $vpnService = Get-Service -Name "OpenVPNServiceInteractive" -ErrorAction SilentlyContinue
+        if ($vpnService) {
+            Write-Host "  -> Configuring OpenVPN Interactive Service..." -ForegroundColor Cyan
+            if ($vpnService.StartType -ne 'Automatic') {
+                Set-Service -Name "OpenVPNServiceInteractive" -StartupType Automatic -ErrorAction SilentlyContinue
+                Write-Host "  [OK] Set OpenVPNServiceInteractive startup type to Automatic." -ForegroundColor Green
+            }
+            if ($vpnService.Status -ne 'Running') {
+                Start-Service -Name "OpenVPNServiceInteractive" -ErrorAction SilentlyContinue
+                Write-Host "  [OK] Started OpenVPNServiceInteractive service." -ForegroundColor Green
+            } else {
+                Write-Host "  [OK] OpenVPNServiceInteractive service is already running." -ForegroundColor Green
+            }
+        } else {
+            Write-Host "  [INFO] OpenVPNServiceInteractive service not registered on this system." -ForegroundColor DarkGray
+        }
+    } catch {
+        Write-Warning "Could not configure OpenVPNServiceInteractive service: $($_.Exception.Message)"
+    }
+
+    # Deploy configuration profile to user directory and 64-bit/32-bit program files (ENV-03)
+    $userConfigDir = Join-Path $env:USERPROFILE "OpenVPN\config"
+    $null = Deploy-OpenVpnConfig -TargetDirectory $userConfigDir
+
+    $sysConfigDirs = @(
+        "C:\Program Files\OpenVPN\config",
+        "C:\Program Files (x86)\OpenVPN\config"
+    )
+    foreach ($scd in $sysConfigDirs) {
+        $parent = Split-Path -Parent $scd
+        if (Test-Path $parent) {
+            $null = Deploy-OpenVpnConfig -TargetDirectory $scd
+        }
+    }
+
+    # Ensure multi-user Public Desktop shortcut (ENV-01)
+    try {
+        $desktopPath = [Environment]::GetFolderPath("CommonDesktopDirectory")
+        if (-not $desktopPath -or -not (Test-Path $desktopPath)) {
+            $desktopPath = [Environment]::GetFolderPath("Desktop")
+        }
         $shortcutPath = Join-Path $desktopPath "OpenVPN GUI.lnk"
         if ((Test-Path $openVpnGuiPath) -and (-not (Test-Path $shortcutPath))) {
             $wshShell = New-Object -ComObject WScript.Shell
             $shortcut = $wshShell.CreateShortcut($shortcutPath)
             $shortcut.TargetPath = $openVpnGuiPath
-            $shortcut.WorkingDirectory = "C:\Program Files\OpenVPN\bin"
+            $shortcut.WorkingDirectory = Split-Path -Parent $openVpnGuiPath
             $shortcut.Description = "OpenVPN GUI Client"
             $shortcut.Save()
-            Write-Host "  [OK] OpenVPN Desktop shortcut created." -ForegroundColor Green
+            Write-Host "  [OK] OpenVPN Public Desktop shortcut created: $shortcutPath" -ForegroundColor Green
         }
     } catch {
         Write-Warning "Could not create desktop shortcut: $($_.Exception.Message)"
@@ -289,21 +532,24 @@ function Show-OpenVpnMenu {
         switch ($vpnChoice) {
             "1" {
                 $null = Install-OpenVPNModule
-                Write-Host "`nPress Enter to return to OpenVPN menu..."; [void][System.Console]::ReadLine()
+                Wait-UserPrompt "Press Enter to return to OpenVPN menu..."
             }
             "2" {
                 Write-Host "`nDeploying IPTSP VPN Profile..." -ForegroundColor Cyan
                 $userDir = Join-Path $env:USERPROFILE "OpenVPN\config"
                 $null = Deploy-OpenVpnConfig -TargetDirectory $userDir
-                if (Test-Path "C:\Program Files\OpenVPN") {
-                    $null = Deploy-OpenVpnConfig -TargetDirectory "C:\Program Files\OpenVPN\config"
+                $sysDirs = @("C:\Program Files\OpenVPN\config", "C:\Program Files (x86)\OpenVPN\config")
+                foreach ($sd in $sysDirs) {
+                    if (Test-Path (Split-Path -Parent $sd)) {
+                        $null = Deploy-OpenVpnConfig -TargetDirectory $sd
+                    }
                 }
                 Write-Host "`n[OK] IPTSP Profile deployed!" -ForegroundColor Green
-                Write-Host "`nPress Enter to return to OpenVPN menu..."; [void][System.Console]::ReadLine()
+                Wait-UserPrompt "Press Enter to return to OpenVPN menu..."
             }
             "3" {
-                $guiPath = "C:\Program Files\OpenVPN\bin\openvpn-gui.exe"
-                if (Test-Path $guiPath) {
+                $guiPath = Get-OpenVpnGuiPath
+                if ($guiPath -and (Test-Path $guiPath)) {
                     Start-Process -FilePath $guiPath
                     Write-Host "`n[OK] OpenVPN GUI launched!" -ForegroundColor Green
                 } else {
@@ -321,7 +567,7 @@ function Show-OpenVpnMenu {
                     Write-Warning "ICMP Ping to $gw did not respond (may be firewalled)."
                 }
                 $null = Test-NetworkPort -TargetHost $gw -Port 1194 -TimeoutSeconds 3
-                Write-Host "`nPress Enter to return to OpenVPN menu..."; [void][System.Console]::ReadLine()
+                Wait-UserPrompt "Press Enter to return to OpenVPN menu..."
             }
             "5" { break }
             default {
@@ -332,7 +578,38 @@ function Show-OpenVpnMenu {
     } while ($vpnChoice -ne "5")
 }
 
+# -------------------------------------------------------------------------
+# MicroSIP VOIP Module
+# -------------------------------------------------------------------------
+
+function Get-MicroSipExePath {
+    <#
+    .SYNOPSIS
+        Detects MicroSIP softphone across 64-bit, 32-bit, and user-local paths (ENV-03).
+    #>
+    $possiblePaths = @(
+        "C:\Program Files\MicroSIP\microsip.exe",
+        "C:\Program Files (x86)\MicroSIP\microsip.exe",
+        (Join-Path $env:LOCALAPPDATA "MicroSIP\microsip.exe")
+    )
+    if ($env:ProgramFiles) { $possiblePaths += (Join-Path $env:ProgramFiles "MicroSIP\microsip.exe") }
+    if (${env:ProgramFiles(x86)}) { $possiblePaths += (Join-Path ${env:ProgramFiles(x86)} "MicroSIP\microsip.exe") }
+
+    foreach ($path in ($possiblePaths | Select-Object -Unique)) {
+        if ($path -and (Test-Path $path)) {
+            return $path
+        }
+    }
+    return $null
+}
+
 function Set-MicroSipConfig {
+    <#
+    .SYNOPSIS
+        Preserves existing INI sections (audio devices, volume, contacts) and merges [Account1] (VOIP-01).
+        Writes output in UTF-8 without BOM to prevent Win32 parsing corruption (VOIP-02).
+        Trims credential inputs to eliminate whitespace issues (VOIP-03).
+    #>
     param(
         [Parameter(Mandatory=$true)][string]$IniPath,
         [Parameter(Mandatory=$true)][string]$Username,
@@ -347,33 +624,92 @@ function Set-MicroSipConfig {
         $null = New-Item -ItemType Directory -Path $parentDir -Force
     }
 
+    # Trim inputs (VOIP-03)
+    $Username = if ($Username) { $Username.Trim() } else { "" }
+    $Extension = if ($Extension) { $Extension.Trim() } else { "" }
+    $Password = if ($Password) { $Password.Trim() } else { "" }
+    $SipServer = if ($SipServer) { $SipServer.Trim() } else { "182.163.126.250" }
+
     $serverWithPort = if ($SipPort -and $SipPort -ne 0) { "$SipServer`:$SipPort" } else { $SipServer }
 
-    $iniContent = @"
-[Settings]
-autoStart=1
-startMinimized=0
-audioCodecs=PCMU/8000/1,PCMA/8000/1,G729/8000/1,opus/48000/2
-singleMode=1
-denyIncoming=0
+    # Parse existing INI if it exists to preserve existing sections (VOIP-01)
+    $sections = [ordered]@{}
+    $currentSection = ""
+    $sections[$currentSection] = [System.Collections.Generic.List[string]]::new()
 
-[Account1]
-label=IPTSP-VOIP
-server=$serverWithPort
-proxy=$serverWithPort
-user=$Extension
-domain=$SipServer
-authID=$Extension
-password=$Password
-name=$Username
-transport=0
-srtp=0
-publish=1
-register=1
-regInterval=300
-"@
+    if (Test-Path $IniPath) {
+        $existingContent = [System.IO.File]::ReadAllText($IniPath)
+        $lines = $existingContent -split '\r?\n'
+        foreach ($line in $lines) {
+            $trimmed = $line.Trim()
+            if ($trimmed -match '^\[(.*)\]$') {
+                $currentSection = $matches[1].Trim()
+                if (-not $sections.Contains($currentSection)) {
+                    $sections[$currentSection] = [System.Collections.Generic.List[string]]::new()
+                }
+            } else {
+                $sections[$currentSection].Add($line)
+            }
+        }
+    }
 
-    [System.IO.File]::WriteAllText($IniPath, $iniContent, [System.Text.Encoding]::UTF8)
+    # Ensure [Settings] exists with baseline values if not present
+    if (-not $sections.Contains("Settings")) {
+        $settingsList = [System.Collections.Generic.List[string]]::new()
+        $settingsList.Add("autoStart=1")
+        $settingsList.Add("startMinimized=0")
+        $settingsList.Add("audioCodecs=PCMU/8000/1,PCMA/8000/1,G729/8000/1,opus/48000/2")
+        $settingsList.Add("singleMode=1")
+        $settingsList.Add("denyIncoming=0")
+        $sections["Settings"] = $settingsList
+    } else {
+        # If [Settings] exists, ensure autoStart=1 is present
+        $hasAutoStart = $false
+        foreach ($sLine in $sections["Settings"]) {
+            if ($sLine -match '^\s*autoStart\s*=') {
+                $hasAutoStart = $true
+                break
+            }
+        }
+        if (-not $hasAutoStart) {
+            $sections["Settings"].Add("autoStart=1")
+        }
+    }
+
+    # Build updated [Account1] settings
+    $accList = [System.Collections.Generic.List[string]]::new()
+    $accList.Add("label=IPTSP-VOIP")
+    $accList.Add("server=$serverWithPort")
+    $accList.Add("proxy=$serverWithPort")
+    $accList.Add("user=$Extension")
+    $accList.Add("domain=$SipServer")
+    $accList.Add("authID=$Extension")
+    $accList.Add("password=$Password")
+    $accList.Add("name=$Username")
+    $accList.Add("transport=0")
+    $accList.Add("srtp=0")
+    $accList.Add("publish=1")
+    $accList.Add("register=1")
+    $accList.Add("regInterval=300")
+    $sections["Account1"] = $accList
+
+    # Reconstruct INI file preserving sections
+    $sb = [System.Text.StringBuilder]::new()
+    foreach ($secKey in $sections.Keys) {
+        if ($secKey -ne "") {
+            $null = $sb.AppendLine("[$secKey]")
+        }
+        foreach ($line in $sections[$secKey]) {
+            if ($line -ne "") {
+                $null = $sb.AppendLine($line)
+            }
+        }
+        $null = $sb.AppendLine()
+    }
+
+    # Write INI with UTF-8 without BOM (VOIP-02)
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($IniPath, $sb.ToString().TrimEnd() + "`r`n", $utf8NoBom)
     Write-Host "  [OK] MicroSIP profile configuration saved to: $IniPath" -ForegroundColor Green
     return $true
 }
@@ -390,25 +726,18 @@ function Install-VoipModule {
     }
 
     # Locate MicroSIP executable
-    $microSipExe = $null
-    $possiblePaths = @(
-        "C:\Program Files\MicroSIP\microsip.exe",
-        "C:\Program Files (x86)\MicroSIP\microsip.exe",
-        (Join-Path $env:LOCALAPPDATA "MicroSIP\microsip.exe")
-    )
-
-    foreach ($p in $possiblePaths) {
-        if (Test-Path $p) {
-            $microSipExe = $p
-            break
-        }
-    }
+    $microSipExe = Get-MicroSipExePath
 
     if (-not $microSipExe) {
         Write-Host "  -> MicroSIP is not installed. Preparing automatic installation..." -ForegroundColor Yellow
         $installerDest = Join-Path $global:RemoteToolsConfig.TempDir "MicroSIP-Setup.exe"
 
-        $downloadOk = Invoke-DownloadWithProgress -Url $global:RemoteToolsConfig.MicroSipUrl -DestinationPath $installerDest -Description "MicroSIP Installer"
+        # Multi-mirror fallback download (NET-01, NET-02)
+        $microSipMirrors = @(
+            $global:RemoteToolsConfig.MicroSipUrl,
+            (Get-ReleaseAssetUrl -Filename "MicroSIP-3.21.3.exe")
+        )
+        $downloadOk = Invoke-DownloadWithProgress -Urls $microSipMirrors -DestinationPath $installerDest -Description "MicroSIP Installer"
         if (-not $downloadOk) {
             Write-Error "Failed to download MicroSIP installer. Please check your internet connection."
             return $false
@@ -431,13 +760,7 @@ function Install-VoipModule {
         Start-Sleep -Seconds 1
 
         # Re-check paths after install
-        foreach ($p in $possiblePaths) {
-            if (Test-Path $p) {
-                $microSipExe = $p
-                break
-            }
-        }
-
+        $microSipExe = Get-MicroSipExePath
         if ($microSipExe) {
             Write-Host "  [OK] MicroSIP installed successfully!" -ForegroundColor Green
         } else {
@@ -448,25 +771,34 @@ function Install-VoipModule {
         Write-Host "  [OK] MicroSIP is already installed at: $microSipExe" -ForegroundColor Green
     }
 
-    # Prompt user for credentials
+    # Prompt user for credentials with secure password masking (SEC-02, VOIP-03)
     Write-Host "`nPlease enter the user's VOIP credentials:" -ForegroundColor Yellow
     
     $username = Read-Host "  Enter User Name (Display Name, e.g. John Doe)"
+    $username = if ($username) { $username.Trim() } else { "" }
     while ([string]::IsNullOrWhiteSpace($username)) {
         Write-Host "  User Name cannot be empty." -ForegroundColor Red
-        $username = Read-Host "  Enter User Name (Display Name)"
+        $username = (Read-Host "  Enter User Name (Display Name)").Trim()
     }
 
     $extension = Read-Host "  Enter Extension / User ID (e.g. 1001)"
+    $extension = if ($extension) { $extension.Trim() } else { "" }
     while ([string]::IsNullOrWhiteSpace($extension)) {
         Write-Host "  Extension cannot be empty." -ForegroundColor Red
-        $extension = Read-Host "  Enter Extension / User ID"
+        $extension = (Read-Host "  Enter Extension / User ID").Trim()
     }
 
-    $password = Read-Host "  Enter SIP Password / Secret"
+    $password = $null
     while ([string]::IsNullOrWhiteSpace($password)) {
-        Write-Host "  Password cannot be empty." -ForegroundColor Red
-        $password = Read-Host "  Enter SIP Password / Secret"
+        Write-Host "  Enter SIP Password / Secret: " -NoNewline
+        $secPass = Read-Host -AsSecureString
+        if ($secPass) {
+            $password = [System.Net.NetworkCredential]::new("", $secPass).Password
+            if ($password) { $password = $password.Trim() }
+        }
+        if ([string]::IsNullOrWhiteSpace($password)) {
+            Write-Host "  Password cannot be empty." -ForegroundColor Red
+        }
     }
 
     $defaultSip = $global:RemoteToolsConfig.DefaultSipServer
@@ -482,9 +814,12 @@ function Install-VoipModule {
                        -SipServer $sipServer `
                        -SipPort $global:RemoteToolsConfig.DefaultSipPort
 
-    # Ensure desktop shortcut exists
+    # Ensure Public Desktop shortcut for all remote users (ENV-01)
     try {
-        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        $desktopPath = [Environment]::GetFolderPath("CommonDesktopDirectory")
+        if (-not $desktopPath -or -not (Test-Path $desktopPath)) {
+            $desktopPath = [Environment]::GetFolderPath("Desktop")
+        }
         $shortcutPath = Join-Path $desktopPath "MicroSIP.lnk"
         if ((Test-Path $microSipExe) -and (-not (Test-Path $shortcutPath))) {
             $wshShell = New-Object -ComObject WScript.Shell
@@ -493,7 +828,7 @@ function Install-VoipModule {
             $shortcut.WorkingDirectory = Split-Path -Parent $microSipExe
             $shortcut.Description = "MicroSIP Softphone"
             $shortcut.Save()
-            Write-Host "  [OK] MicroSIP Desktop shortcut created." -ForegroundColor Green
+            Write-Host "  [OK] MicroSIP Public Desktop shortcut created: $shortcutPath" -ForegroundColor Green
         }
     } catch {
         Write-Warning "Could not create MicroSIP desktop shortcut: $($_.Exception.Message)"
@@ -528,13 +863,37 @@ function Show-VoipMenu {
         switch ($voipChoice) {
             "1" {
                 $null = Install-VoipModule
-                Write-Host "`nPress Enter to return to VOIP menu..."; [void][System.Console]::ReadLine()
+                Wait-UserPrompt "Press Enter to return to VOIP menu..."
             }
             "2" {
                 Write-Host "`nUpdate VOIP Credentials:" -ForegroundColor Yellow
                 $username = Read-Host "  Enter User Name (Display Name)"
+                while ([string]::IsNullOrWhiteSpace($username)) {
+                    Write-Host "  User Name cannot be empty." -ForegroundColor Red
+                    $username = Read-Host "  Enter User Name (Display Name)"
+                }
+                $username = $username.Trim()
+
                 $extension = Read-Host "  Enter Extension / User ID"
-                $password = Read-Host "  Enter SIP Password"
+                while ([string]::IsNullOrWhiteSpace($extension)) {
+                    Write-Host "  Extension cannot be empty." -ForegroundColor Red
+                    $extension = Read-Host "  Enter Extension / User ID"
+                }
+                $extension = $extension.Trim()
+                
+                $password = $null
+                while ([string]::IsNullOrWhiteSpace($password)) {
+                    Write-Host "  Enter SIP Password: " -NoNewline
+                    $secPass = Read-Host -AsSecureString
+                    if ($secPass) {
+                        $password = [System.Net.NetworkCredential]::new("", $secPass).Password
+                        if ($password) { $password = $password.Trim() }
+                    }
+                    if ([string]::IsNullOrWhiteSpace($password)) {
+                        Write-Host "  Password cannot be empty." -ForegroundColor Red
+                    }
+                }
+
                 $defaultSip = $global:RemoteToolsConfig.DefaultSipServer
                 $sipInput = Read-Host "  Enter SIP Server IP [$defaultSip]"
                 $sipServer = if ([string]::IsNullOrWhiteSpace($sipInput)) { $defaultSip } else { $sipInput.Trim() }
@@ -542,16 +901,10 @@ function Show-VoipMenu {
                 $appDataIni = Join-Path $env:APPDATA "MicroSIP\MicroSIP.ini"
                 $null = Set-MicroSipConfig -IniPath $appDataIni -Username $username -Extension $extension -Password $password -SipServer $sipServer
                 Write-Host "`n[OK] SIP configuration updated!" -ForegroundColor Green
-                Write-Host "`nPress Enter to return to VOIP menu..."; [void][System.Console]::ReadLine()
+                Wait-UserPrompt "Press Enter to return to VOIP menu..."
             }
             "3" {
-                $microSipPaths = @(
-                    "C:\Program Files\MicroSIP\microsip.exe",
-                    "C:\Program Files (x86)\MicroSIP\microsip.exe",
-                    (Join-Path $env:LOCALAPPDATA "MicroSIP\microsip.exe")
-                )
-                $found = $null
-                foreach ($p in $microSipPaths) { if (Test-Path $p) { $found = $p; break } }
+                $found = Get-MicroSipExePath
                 if ($found) {
                     Start-Process -FilePath $found
                     Write-Host "`n[OK] MicroSIP softphone launched!" -ForegroundColor Green
@@ -570,7 +923,7 @@ function Show-VoipMenu {
                     Write-Host "  [INFO] ICMP Ping to $sipHost did not respond (may be filtered)." -ForegroundColor DarkGray
                 }
                 $null = Test-NetworkPort -TargetHost $sipHost -Port 5060 -TimeoutSeconds 3
-                Write-Host "`nPress Enter to return to VOIP menu..."; [void][System.Console]::ReadLine()
+                Wait-UserPrompt "Press Enter to return to VOIP menu..."
             }
             "5" { break }
             default {
@@ -580,6 +933,10 @@ function Show-VoipMenu {
         }
     } while ($voipChoice -ne "5")
 }
+
+# -------------------------------------------------------------------------
+# Printer Driver Installation Module
+# -------------------------------------------------------------------------
 
 function Install-PrinterDriver {
     param(
@@ -629,7 +986,7 @@ function Show-PrinterDriverMenu {
         $driverChoice = Read-Host "Enter driver option [1-5]"
         if ($global:PrinterDrivers.ContainsKey($driverChoice)) {
             $null = Install-PrinterDriver -DriverInfo $global:PrinterDrivers[$driverChoice]
-            Write-Host "`nPress Enter to return to Printer Drivers menu..."; [void][System.Console]::ReadLine()
+            Wait-UserPrompt "Press Enter to return to Printer Drivers menu..."
         } elseif ($driverChoice -eq "4") {
             Write-Host "`nInstalled Printers on this system:" -ForegroundColor Cyan
             try {
@@ -637,7 +994,7 @@ function Show-PrinterDriverMenu {
             } catch {
                 Write-Warning "Could not retrieve printers: $($_.Exception.Message)"
             }
-            Write-Host "Press Enter to return to Printer Drivers menu..."; [void][System.Console]::ReadLine()
+            Wait-UserPrompt "Press Enter to return to Printer Drivers menu..."
         } elseif ($driverChoice -eq "5") {
             break
         } else {
@@ -647,60 +1004,111 @@ function Show-PrinterDriverMenu {
     } while ($driverChoice -ne "5")
 }
 
+# -------------------------------------------------------------------------
+# Barcode Print Server Bridge Module
+# -------------------------------------------------------------------------
+
 function Add-PrintServerDefenderExclusions {
+    <#
+    .SYNOPSIS
+        Inspects antivirus environment via WMI/CIM and verifies Defender service status
+        before applying exclusions, avoiding false positives (SEC-01).
+    #>
     param([string]$ServerDir = "C:\PrintServer")
-    Write-Host "  -> Configuring Windows Defender exclusions..." -ForegroundColor Cyan
+    Write-Host "  -> Inspecting antivirus environment & configuring exclusions..." -ForegroundColor Cyan
+
+    # Step 1: Detect Antivirus products via WMI/CIM
+    $avProducts = @()
+    try {
+        if (Get-CimSession -ErrorAction SilentlyContinue) {
+            $avProducts = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue
+        } else {
+            $avProducts = Get-WmiObject -Namespace root/SecurityCenter2 -Class AntiVirusProduct -ErrorAction SilentlyContinue
+        }
+    } catch { }
+
+    $thirdPartyAv = @()
+    if ($avProducts) {
+        foreach ($av in $avProducts) {
+            $name = $av.displayName
+            if ($name -match 'Defender') {
+                Write-Host "  [DETECTED] Antivirus: $name (Built-in)" -ForegroundColor Cyan
+            } else {
+                $thirdPartyAv += $name
+                Write-Host "  [DETECTED] Third-party Antivirus: $name" -ForegroundColor Yellow
+            }
+        }
+    }
+
+    if ($thirdPartyAv.Count -gt 0) {
+        Write-Warning "Active third-party antivirus detected ($($thirdPartyAv -join ', ')).`n     Automated Defender exclusions may not cover third-party scanners.`n     Please ensure '$ServerDir' and 'print_server.exe' are whitelisted in your third-party security suite."
+    }
+
+    # Step 2: Check WinDefend service status
+    $wdService = Get-Service -Name WinDefend -ErrorAction SilentlyContinue
+    if (-not $wdService) {
+        Write-Host "  [INFO] Windows Defender service (WinDefend) is not installed." -ForegroundColor DarkGray
+        return $false
+    }
+
+    if ($wdService.Status -ne 'Running') {
+        Write-Warning "Windows Defender service is currently '$($wdService.Status)' (not Running). Defender exclusions cannot take effect."
+        return $false
+    }
+
+    # Step 3: Check Add-MpPreference cmdlet and apply exclusions
     try {
         if (Get-Command Add-MpPreference -ErrorAction SilentlyContinue) {
-            Add-MpPreference -ExclusionPath $ServerDir -ErrorAction SilentlyContinue
-            Add-MpPreference -ExclusionProcess "print_server.exe" -ErrorAction SilentlyContinue
-            Write-Host "  [OK] Defender exclusion added for folder: $ServerDir" -ForegroundColor Green
-            Write-Host "  [OK] Defender exclusion added for process: print_server.exe" -ForegroundColor Green
+            Add-MpPreference -ExclusionPath $ServerDir -ErrorAction Stop
+            Add-MpPreference -ExclusionProcess "print_server.exe" -ErrorAction Stop
+            Write-Host "  [OK] Defender exclusion applied for folder: $ServerDir" -ForegroundColor Green
+            Write-Host "  [OK] Defender exclusion applied for process: print_server.exe" -ForegroundColor Green
             return $true
         } else {
-            Write-Host "  [INFO] Windows Defender cmdlets not present on this system." -ForegroundColor DarkGray
-            return $true
+            Write-Host "  [INFO] Windows Defender cmdlets (Add-MpPreference) not present on this system." -ForegroundColor DarkGray
+            return $false
         }
     } catch {
-        Write-Warning "Could not configure Defender exclusions: $($_.Exception.Message)"
+        Write-Warning "Failed to apply Defender exclusions: $($_.Exception.Message)"
         return $false
     }
 }
 
 function Register-PrintServerStartup {
+    <#
+    .SYNOPSIS
+        Creates a direct .lnk shortcut with WindowStyle = 7 (Minimized) in the Common Startup
+        directory for multi-user support (ENV-02), avoiding Defender ASR rule blocks against VBScript (PROC-02).
+    #>
     param(
         [Parameter(Mandatory=$true)][string]$TargetExe,
         [Parameter(Mandatory=$true)][string]$TargetDir,
         [switch]$TestOnly
     )
 
-    # Create VBScript launcher to start print_server.exe completely minimized
-    $vbsPath = Join-Path $TargetDir "start_minimized.vbs"
-    $vbsContent = @"
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run """$TargetExe""", 7, False
-"@
-    [System.IO.File]::WriteAllText($vbsPath, $vbsContent, [System.Text.Encoding]::ASCII)
-    Write-Host "  [OK] Minimized launcher created at: $vbsPath" -ForegroundColor Green
-
-    if ($TestOnly) {
-        return $vbsPath
+    # Determine common startup directory for multi-user support (ENV-02)
+    $startupFolder = [Environment]::GetFolderPath("CommonStartup")
+    if (-not $startupFolder -or -not (Test-Path $startupFolder)) {
+        $startupFolder = [Environment]::GetFolderPath("Startup")
     }
 
-    # Place shortcut in Windows Startup directory
+    $destinationShortcut = if ($TestOnly) {
+        Join-Path $TargetDir "PrintServer.lnk"
+    } else {
+        Join-Path $startupFolder "PrintServer.lnk"
+    }
+
+    # Direct .lnk shortcut with WindowStyle = 7 (Minimized) avoids Defender ASR rule blocks against VBScript
     try {
-        $startupFolder = [Environment]::GetFolderPath("Startup")
-        $startupShortcut = Join-Path $startupFolder "PrintServer.lnk"
-        
         $wshShell = New-Object -ComObject WScript.Shell
-        $shortcut = $wshShell.CreateShortcut($startupShortcut)
-        $shortcut.TargetPath = "wscript.exe"
-        $shortcut.Arguments = "`"$vbsPath`""
+        $shortcut = $wshShell.CreateShortcut($destinationShortcut)
+        $shortcut.TargetPath = $TargetExe
         $shortcut.WorkingDirectory = $TargetDir
         $shortcut.Description = "Barcode Print Server Bridge (Auto-Start Minimized)"
+        $shortcut.WindowStyle = 7 # Minimized
         $shortcut.Save()
-        Write-Host "  [OK] Startup auto-launch configured: $startupShortcut" -ForegroundColor Green
-        return $startupShortcut
+        Write-Host "  [OK] Minimized startup shortcut registered: $destinationShortcut" -ForegroundColor Green
+        return $destinationShortcut
     } catch {
         Write-Warning "Could not configure startup shortcut: $($_.Exception.Message)"
         return $null
@@ -715,10 +1123,13 @@ function Install-PrintServerModule {
         $null = New-Item -ItemType Directory -Path $serverDir -Force
     }
 
-    # Step 1: Microsoft Defender Exclusion
+    # Step 1: Terminate running print server gracefully before file write (PS-01)
+    $null = Stop-PrintServerGracefully
+
+    # Step 2: Microsoft Defender Exclusion with AV inspection (SEC-01)
     $null = Add-PrintServerDefenderExclusions -ServerDir $serverDir
 
-    # Step 2: Copy or Download print_server.exe
+    # Step 3: Copy or Download print_server.exe
     $destExe = Join-Path $serverDir "print_server.exe"
     $localExe = Join-Path $PSScriptRoot "print_server.exe"
 
@@ -735,9 +1146,12 @@ function Install-PrintServerModule {
         }
     }
 
-    # Step 3: Create Desktop Shortcut
+    # Step 4: Create Multi-User Public Desktop Shortcut (ENV-01, PROC-02)
     try {
-        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        $desktopPath = [Environment]::GetFolderPath("CommonDesktopDirectory")
+        if (-not $desktopPath -or -not (Test-Path $desktopPath)) {
+            $desktopPath = [Environment]::GetFolderPath("Desktop")
+        }
         $desktopShortcut = Join-Path $desktopPath "Print Server.lnk"
         $wshShell = New-Object -ComObject WScript.Shell
         $shortcut = $wshShell.CreateShortcut($desktopShortcut)
@@ -746,20 +1160,19 @@ function Install-PrintServerModule {
         $shortcut.Description = "Barcode Print Server Bridge"
         $shortcut.WindowStyle = 7 # Minimized
         $shortcut.Save()
-        Write-Host "  [OK] Desktop shortcut created: $desktopShortcut" -ForegroundColor Green
+        Write-Host "  [OK] Public Desktop shortcut created: $desktopShortcut" -ForegroundColor Green
     } catch {
         Write-Warning "Could not create Desktop shortcut: $($_.Exception.Message)"
     }
 
-    # Step 4: Register Minimized Startup
+    # Step 5: Register Direct Minimized Startup Shortcut (PROC-02, ENV-02)
     $null = Register-PrintServerStartup -TargetExe $destExe -TargetDir $serverDir
 
-    # Step 5: Start immediately if not already running
+    # Step 6: Start immediately minimized if not already running
     $running = Get-Process print_server -ErrorAction SilentlyContinue
     if (-not $running) {
         Write-Host "  -> Starting Print Server minimized right now..." -ForegroundColor Cyan
-        $vbsPath = Join-Path $serverDir "start_minimized.vbs"
-        Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsPath`""
+        Start-Process -FilePath $destExe -WorkingDirectory $serverDir -WindowStyle Minimized
         Start-Sleep -Seconds 2
         
         $checkRunning = Get-Process print_server -ErrorAction SilentlyContinue
@@ -791,12 +1204,11 @@ function Show-PrintServerMenu {
         switch ($psChoice) {
             "1" {
                 $null = Install-PrintServerModule
-                Write-Host "`nPress Enter to return to Print Server menu..."; [void][System.Console]::ReadLine()
+                Wait-UserPrompt "Press Enter to return to Print Server menu..."
             }
             "2" {
                 $serverDir = $global:RemoteToolsConfig.PrintServerDir
                 $destExe = Join-Path $serverDir "print_server.exe"
-                $vbsPath = Join-Path $serverDir "start_minimized.vbs"
 
                 if (-not (Test-Path $destExe)) {
                     Write-Warning "print_server.exe not found in $serverDir. Please run Option 1 (Full Setup) first."
@@ -805,7 +1217,7 @@ function Show-PrintServerMenu {
                     if ($running) {
                         Write-Host "  [INFO] Print Server is already running (PID: $($running.Id))." -ForegroundColor Yellow
                     } else {
-                        Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsPath`""
+                        Start-Process -FilePath $destExe -WorkingDirectory $serverDir -WindowStyle Minimized
                         Start-Sleep -Seconds 2
                         $newProc = Get-Process print_server -ErrorAction SilentlyContinue
                         if ($newProc) {
@@ -815,17 +1227,16 @@ function Show-PrintServerMenu {
                         }
                     }
                 }
-                Write-Host "`nPress Enter to return to Print Server menu..."; [void][System.Console]::ReadLine()
+                Wait-UserPrompt "Press Enter to return to Print Server menu..."
             }
             "3" {
-                $running = Get-Process print_server -ErrorAction SilentlyContinue
-                if ($running) {
-                    $running | Stop-Process -Force
+                $stopped = Stop-PrintServerGracefully
+                if ($stopped) {
                     Write-Host "  [OK] Print Server process stopped successfully." -ForegroundColor Green
                 } else {
                     Write-Host "  [INFO] Print Server is not currently running." -ForegroundColor Yellow
                 }
-                Start-Sleep -Seconds 2
+                Wait-UserPrompt "Press Enter to return to Print Server menu..."
             }
             "4" {
                 Write-Host "`nChecking Print Server Bridge on port 4444..." -ForegroundColor Cyan
@@ -834,6 +1245,18 @@ function Show-PrintServerMenu {
                     Write-Host "  [OK] Process 'print_server.exe' is RUNNING (PID: $($proc.Id))" -ForegroundColor Green
                 } else {
                     Write-Host "  [FAIL] Process 'print_server.exe' is NOT RUNNING" -ForegroundColor Red
+                }
+
+                $portCheck = Test-PortAvailability -Port 4444 -ReportProcess
+                if (-not $portCheck.Available) {
+                    $owner = if ($portCheck.ProcessName) { "$($portCheck.ProcessName) (PID: $($portCheck.OwningProcessId))" } else { "PID: $($portCheck.OwningProcessId)" }
+                    if ($proc -and $proc.Id -eq $portCheck.OwningProcessId) {
+                        Write-Host "  [OK] Port 4444 is properly bound by print_server.exe (PID: $($proc.Id))" -ForegroundColor Green
+                    } else {
+                        Write-Warning "Port 4444 is occupied by another process: $owner!"
+                    }
+                } else {
+                    Write-Host "  [FAIL] Port 4444 is NOT listening (Available/Unbound)." -ForegroundColor Red
                 }
 
                 $portOpen = Test-NetworkPort -TargetHost "127.0.0.1" -Port 4444 -TimeoutSeconds 2
@@ -845,11 +1268,11 @@ function Show-PrintServerMenu {
                         Write-Host "  [INFO] Port 4444 open, endpoint response: $($_.Exception.Message)" -ForegroundColor DarkGray
                     }
                 }
-                Write-Host "`nPress Enter to return to Print Server menu..."; [void][System.Console]::ReadLine()
+                Wait-UserPrompt "Press Enter to return to Print Server menu..."
             }
             "5" {
                 $null = Add-PrintServerDefenderExclusions -ServerDir $global:RemoteToolsConfig.PrintServerDir
-                Write-Host "`nPress Enter to return to Print Server menu..."; [void][System.Console]::ReadLine()
+                Wait-UserPrompt "Press Enter to return to Print Server menu..."
             }
             "6" { break }
             default {

@@ -12,8 +12,21 @@ if ($content -notmatch "function Install-OpenVPNModule") {
 if ($content -notmatch "function Deploy-OpenVpnConfig") {
     throw "Test Failed: Deploy-OpenVpnConfig function missing"
 }
+if ($content -notmatch "function Get-OpenVpnGuiPath") {
+    throw "Test Failed: Get-OpenVpnGuiPath function missing"
+}
 if ($content -notmatch "EmbeddedIptspOvpn") {
     throw "Test Failed: EmbeddedIptspOvpn payload missing"
+}
+
+# Verify OpenVPNServiceInteractive service check exists (ENV-03)
+if ($content -notmatch "OpenVPNServiceInteractive") {
+    throw "Test Failed: OpenVPNServiceInteractive check missing in OpenVPN module"
+}
+
+# Verify CommonDesktopDirectory usage (ENV-01)
+if ($content -notmatch "CommonDesktopDirectory") {
+    throw "Test Failed: CommonDesktopDirectory not referenced for multi-user desktop shortcuts"
 }
 
 # Test profile deployment logic
@@ -33,6 +46,9 @@ $fileContent = Get-Content $targetFile -Raw
 if ($fileContent -notmatch "remote 182.163.126.253 1194 udp4") {
     throw "Test Failed: Deployed profile does not match expected server configuration"
 }
+
+# Test Get-OpenVpnGuiPath execution
+$null = Get-OpenVpnGuiPath
 
 # Cleanup
 Remove-Item $testDir -Recurse -Force
