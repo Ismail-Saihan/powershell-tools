@@ -26,7 +26,7 @@ Set-MicroSipConfig -IniPath $testIniPath `
                    -Username "John Doe" `
                    -Extension "204" `
                    -Password "SecretPass123" `
-                   -SipServer "182.163.126.253" `
+                   -SipServer "182.163.126.250" `
                    -SipPort 5060
 
 if (-not (Test-Path $testIniPath)) {
@@ -37,7 +37,7 @@ $iniContent = Get-Content $testIniPath -Raw
 if ($iniContent -notmatch "user=204") { throw "Test Failed: user=204 missing" }
 if ($iniContent -notmatch "authID=204") { throw "Test Failed: authID=204 missing" }
 if ($iniContent -notmatch "password=SecretPass123") { throw "Test Failed: password missing" }
-if ($iniContent -notmatch "server=182\.163\.126\.253:5060") { throw "Test Failed: server IP:port missing" }
+if ($iniContent -notmatch "server=182\.163\.126\.250:5060") { throw "Test Failed: server IP:port missing" }
 if ($iniContent -notmatch "name=John Doe") { throw "Test Failed: name missing" }
 if ($iniContent -notmatch "autoStart=1") { throw "Test Failed: autoStart missing" }
 

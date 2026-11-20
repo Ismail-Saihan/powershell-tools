@@ -27,7 +27,7 @@ This project delivers a streamlined, single-command PowerShell onboarding and ma
 2. **`[2] Setup VOIP (MicroSIP)`**
    - Checks if MicroSIP is installed; downloads and installs silently if missing (`/S`).
    - Prompts for **Username**, **Extension**, and **Password**.
-   - Displays default SIP Server IP (`182.163.126.253`), allowing the technician to press Enter or type a custom IP/domain.
+   - Displays default SIP Server IP (`182.163.126.250`), allowing the technician to press Enter or type a custom IP/domain.
    - Generates/updates `%APPDATA%\MicroSIP\MicroSIP.ini` with `[Account1]` settings, auto-run enabled, and audio settings.
 3. **`[3] Install Printer Driver`**
    - Submenu:

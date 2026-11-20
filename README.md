@@ -20,7 +20,7 @@ irm https://raw.githubusercontent.com/<YOUR_USERNAME>/<YOUR_REPO>/main/remote-to
 * **2. VOIP Setup (MicroSIP)**:
   * Detects MicroSIP; downloads and installs silently if missing.
   * Prompts the user/technician for **Display Name**, **Extension / User ID**, and **SIP Password**.
-  * Pre-configures SIP Server IP (defaulted to `182.163.126.253` with interactive override).
+  * Pre-configures SIP Server IP (defaulted to `182.163.126.250` with interactive override).
   * Automatically writes account settings and enables Windows auto-start in `MicroSIP.ini`.
 * **3. Printer Driver Installation**:
   * Interactive sub-menu for popular thermal, label, and POS printers:

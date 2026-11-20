@@ -30,7 +30,7 @@ $global:RemoteToolsConfig = @{
     GitHubUser        = "YourUsername"
     GitHubRepo        = "Powershell-Tools"
     ReleaseTag        = "v1.0.0"
-    DefaultSipServer  = "182.163.126.253"
+    DefaultSipServer  = "182.163.126.250"
     DefaultSipPort    = 5060
     PrintServerDir    = "C:\PrintServer"
     PrintServerPort   = 4444
@@ -241,7 +241,7 @@ function Set-MicroSipConfig {
         [Parameter(Mandatory=$true)][string]$Username,
         [Parameter(Mandatory=$true)][string]$Extension,
         [Parameter(Mandatory=$true)][string]$Password,
-        [string]$SipServer = "182.163.126.253",
+        [string]$SipServer = "182.163.126.250",
         [int]$SipPort = 5060
     )
 
