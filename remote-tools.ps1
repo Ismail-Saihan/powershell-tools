@@ -27,8 +27,8 @@ try {
 $global:RemoteToolsConfig = @{
     ToolName          = "Remote User Support Tools"
     Version           = "1.0.0"
-    GitHubUser        = "YourUsername"
-    GitHubRepo        = "Powershell-Tools"
+    GitHubUser        = "Ismail-Saihan"
+    GitHubRepo        = "powershell-tools"
     ReleaseTag        = "v1.0.0"
     DefaultSipServer  = "182.163.126.250"
     DefaultSipPort    = 5060

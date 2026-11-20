@@ -3,7 +3,7 @@
 A modern, menu-driven PowerShell onboarding and support utility designed for remote users and field technicians. Users launch the tool instantly by pasting a single one-liner command into PowerShell.
 
 ```powershell
-irm https://raw.githubusercontent.com/<YOUR_USERNAME>/<YOUR_REPO>/main/remote-tools.ps1 | iex
+irm https://raw.githubusercontent.com/Ismail-Saihan/powershell-tools/main/remote-tools.ps1 | iex
 ```
 *(Or via a custom TinyURL link such as `irm https://tinyurl.com/your-tools | iex`)*
 
@@ -43,7 +43,7 @@ irm https://raw.githubusercontent.com/<YOUR_USERNAME>/<YOUR_REPO>/main/remote-to
 1. Open Windows PowerShell (or right-click and choose **Run as administrator**).
 2. Paste your one-liner and press **Enter**:
    ```powershell
-   irm https://raw.githubusercontent.com/<YOUR_USERNAME>/<YOUR_REPO>/main/remote-tools.ps1 | iex
+   irm https://raw.githubusercontent.com/Ismail-Saihan/powershell-tools/main/remote-tools.ps1 | iex
    ```
 3. The interactive menu will appear:
    ```text
@@ -73,7 +73,7 @@ irm https://raw.githubusercontent.com/<YOUR_USERNAME>/<YOUR_REPO>/main/remote-to
 1. Create a new repository on [GitHub](https://github.com/new) named `powershell-tools`.
 2. Connect your local git repository:
    ```powershell
-   git remote add origin https://github.com/<YOUR_USERNAME>/powershell-tools.git
+   git remote add origin https://github.com/Ismail-Saihan/powershell-tools.git
    git branch -M main
    git push -u origin main
    ```
@@ -83,7 +83,7 @@ irm https://raw.githubusercontent.com/<YOUR_USERNAME>/<YOUR_REPO>/main/remote-to
 
 Run the included automated release helper:
 ```powershell
-.\publish-release.ps1 -GitHubUser "<YOUR_USERNAME>" -GitHubRepo "powershell-tools" -Tag "v1.0.0" -UpdateScriptConfig
+.\publish-release.ps1 -GitHubUser "Ismail-Saihan" -GitHubRepo "powershell-tools" -Tag "v1.0.0" -UpdateScriptConfig
 ```
 
 This helper will:
@@ -99,7 +99,7 @@ This helper will:
 ### Step 3: Create a TinyURL Shortcut (Optional)
 To make the command easy for users to type or copy from a message:
 1. Copy your raw GitHub URL:
-   `https://raw.githubusercontent.com/<YOUR_USERNAME>/powershell-tools/main/remote-tools.ps1`
+   `https://raw.githubusercontent.com/Ismail-Saihan/powershell-tools/main/remote-tools.ps1`
 2. Go to [TinyURL](https://tinyurl.com) or [Bitly](https://bitly.com).
 3. Paste the URL and create a custom alias, e.g. `tinyurl.com/carrybee-tools`.
 4. Remote users can now simply run:
