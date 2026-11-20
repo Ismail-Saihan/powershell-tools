@@ -35,7 +35,8 @@ $global:RemoteToolsConfig = @{
     PrintServerDir    = "C:\PrintServer"
     PrintServerPort   = 4444
     TempDir           = (Join-Path $env:TEMP "RemoteTools")
-    OpenVpnMsiUrl     = "https://github.com/OpenVPN/openvpn/releases/download/v2.6.12/OpenVPN-2.6.12-I001-amd64.msi"
+    OpenVpnMsiUrl     = "https://swupdate.openvpn.net/community/releases/OpenVPN-2.6.12-I001-amd64.msi"
+    OpenVpnBackupUrl  = "https://build.openvpn.net/downloads/releases/OpenVPN-2.6.12-I001-amd64.msi"
     MicroSipUrl       = "https://www.microsip.org/download/MicroSIP-3.21.3.exe"
 }
 
@@ -432,6 +433,7 @@ function Install-OpenVPNModule {
         # Download with mirror fallback (NET-01, NET-02)
         $openVpnMirrors = @(
             $global:RemoteToolsConfig.OpenVpnMsiUrl,
+            $global:RemoteToolsConfig.OpenVpnBackupUrl,
             (Get-ReleaseAssetUrl -Filename "OpenVPN-2.6.12-I001-amd64.msi")
         )
         $downloadSuccess = Invoke-DownloadWithProgress -Urls $openVpnMirrors -DestinationPath $msiDest -Description "OpenVPN Community Client MSI"
@@ -612,9 +614,12 @@ function Set-MicroSipConfig {
     #>
     param(
         [Parameter(Mandatory=$true)][string]$IniPath,
-        [Parameter(Mandatory=$true)][string]$Username,
         [Parameter(Mandatory=$true)][string]$Extension,
         [Parameter(Mandatory=$true)][string]$Password,
+        [string]$FullName = "",
+        [string]$DisplayName = "",
+        [string]$AccountName = "",
+        [string]$Username = "",
         [string]$SipServer = "182.163.126.250",
         [int]$SipPort = 5060
     )
@@ -625,10 +630,20 @@ function Set-MicroSipConfig {
     }
 
     # Trim inputs (VOIP-03)
-    $Username = if ($Username) { $Username.Trim() } else { "" }
     $Extension = if ($Extension) { $Extension.Trim() } else { "" }
     $Password = if ($Password) { $Password.Trim() } else { "" }
+    $FullName = if ($FullName) { $FullName.Trim() } elseif ($Username) { $Username.Trim() } else { "" }
+    $DisplayName = if ($DisplayName) { $DisplayName.Trim() } else { "" }
+    $AccountName = if ($AccountName) { $AccountName.Trim() } else { "" }
     $SipServer = if ($SipServer) { $SipServer.Trim() } else { "182.163.126.250" }
+
+    # Smart defaults matching MicroSIP Account configuration dialog
+    if ([string]::IsNullOrWhiteSpace($AccountName)) {
+        $AccountName = if ($FullName) { "$Extension- $FullName" } else { "$Extension- VOIP" }
+    }
+    if ([string]::IsNullOrWhiteSpace($DisplayName)) {
+        $DisplayName = if ($FullName) { $FullName } else { $Extension }
+    }
 
     $serverWithPort = if ($SipPort -and $SipPort -ne 0) { "$SipServer`:$SipPort" } else { $SipServer }
 
@@ -684,6 +699,8 @@ function Set-MicroSipConfig {
     } catch {}
 
     $settingsRef = $sections["Settings"]
+    # Ensure Account 1 is the active selected account
+    Set-IniSettingItem -List $settingsRef -Key "accountId" -Value "1"
     Set-IniSettingItem -List $settingsRef -Key "autoStart" -Value "1"
     Set-IniSettingItem -List $settingsRef -Key "startMinimized" -Value "0"
     Set-IniSettingItem -List $settingsRef -Key "singleMode" -Value "1"
@@ -699,21 +716,24 @@ function Set-MicroSipConfig {
     Set-IniSettingItem -List $settingsRef -Key "updatesInterval" -Value "never"
     Set-IniSettingItem -List $settingsRef -Key "checkUpdatesTime" -Value "0"
 
-    # Build updated [Account1] settings
+    # Build updated [Account1] settings matching the MicroSIP Account configuration dialog
     $accList = [System.Collections.Generic.List[string]]::new()
-    $accList.Add("label=IPTSP-VOIP")
+    $accList.Add("label=$AccountName")
     $accList.Add("server=$serverWithPort")
     $accList.Add("proxy=$serverWithPort")
     $accList.Add("user=$Extension")
+    $accList.Add("username=$Extension")
     $accList.Add("domain=$SipServer")
     $accList.Add("authID=$Extension")
     $accList.Add("password=$Password")
-    $accList.Add("name=$Username")
+    $accList.Add("displayName=$DisplayName")
+    $accList.Add("name=$DisplayName")
     $accList.Add("transport=0")
     $accList.Add("srtp=0")
     $accList.Add("publish=1")
     $accList.Add("register=1")
     $accList.Add("regInterval=300")
+    $accList.Add("keepAlive=15")
     $sections["Account1"] = $accList
 
     # Reconstruct INI file preserving sections
@@ -795,21 +815,35 @@ function Install-VoipModule {
     }
 
     # Prompt user for credentials with secure password masking (SEC-02, VOIP-03)
-    Write-Host "`nPlease enter the user's VOIP credentials:" -ForegroundColor Yellow
+    Write-Host "`nPlease enter the VOIP credentials (as shown in MicroSIP Account configuration):" -ForegroundColor Yellow
     
-    $username = Read-Host "  Enter User Name (Display Name, e.g. John Doe)"
-    $username = if ($username) { $username.Trim() } else { "" }
-    while ([string]::IsNullOrWhiteSpace($username)) {
-        Write-Host "  User Name cannot be empty." -ForegroundColor Red
-        $username = (Read-Host "  Enter User Name (Display Name)").Trim()
-    }
-
-    $extension = Read-Host "  Enter Extension / User ID (e.g. 1001)"
+    $extension = Read-Host "  Enter Extension / User ID (e.g. 1054)"
     $extension = if ($extension) { $extension.Trim() } else { "" }
     while ([string]::IsNullOrWhiteSpace($extension)) {
-        Write-Host "  Extension cannot be empty." -ForegroundColor Red
-        $extension = (Read-Host "  Enter Extension / User ID").Trim()
+        Write-Host "  Extension / User ID cannot be empty." -ForegroundColor Red
+        $extension = (Read-Host "  Enter Extension / User ID (e.g. 1054)").Trim()
     }
+
+    $fullName = Read-Host "  Enter Full Name & Designation (e.g. Ismail Hossain Saihan[IT])"
+    $fullName = if ($fullName) { $fullName.Trim() } else { "" }
+    while ([string]::IsNullOrWhiteSpace($fullName)) {
+        Write-Host "  Full Name cannot be empty." -ForegroundColor Red
+        $fullName = (Read-Host "  Enter Full Name & Designation").Trim()
+    }
+
+    # Intelligent display name suggestion (e.g. Ismail Hossain Saihan[IT] -> Ismail-IT)
+    $suggestedDisplayName = if ($fullName -match "([A-Za-z]+).*?(\[[^\]]+\])") {
+        "$($matches[1])-$($matches[2].Trim('[]'))"
+    } else {
+        $fullName
+    }
+    $displayInput = Read-Host "  Enter Display Name / Caller ID [$suggestedDisplayName]"
+    $displayName = if ([string]::IsNullOrWhiteSpace($displayInput)) { $suggestedDisplayName } else { $displayInput.Trim() }
+
+    # Intelligent account name suggestion (e.g. 1054- Ismail Hossain Saihan[IT])
+    $suggestedAccountName = "$extension- $fullName"
+    $accountInput = Read-Host "  Enter Account Name [$suggestedAccountName]"
+    $accountName = if ([string]::IsNullOrWhiteSpace($accountInput)) { $suggestedAccountName } else { $accountInput.Trim() }
 
     $password = $null
     while ([string]::IsNullOrWhiteSpace($password)) {
@@ -831,8 +865,10 @@ function Install-VoipModule {
     # Write MicroSIP configuration
     $appDataIni = Join-Path $env:APPDATA "MicroSIP\MicroSIP.ini"
     Set-MicroSipConfig -IniPath $appDataIni `
-                       -Username $username `
                        -Extension $extension `
+                       -FullName $fullName `
+                       -DisplayName $displayName `
+                       -AccountName $accountName `
                        -Password $password `
                        -SipServer $sipServer `
                        -SipPort $global:RemoteToolsConfig.DefaultSipPort
@@ -890,19 +926,31 @@ function Show-VoipMenu {
             }
             "2" {
                 Write-Host "`nUpdate VOIP Credentials:" -ForegroundColor Yellow
-                $username = Read-Host "  Enter User Name (Display Name)"
-                while ([string]::IsNullOrWhiteSpace($username)) {
-                    Write-Host "  User Name cannot be empty." -ForegroundColor Red
-                    $username = Read-Host "  Enter User Name (Display Name)"
-                }
-                $username = $username.Trim()
-
-                $extension = Read-Host "  Enter Extension / User ID"
+                $extension = Read-Host "  Enter Extension / User ID (e.g. 1054)"
                 while ([string]::IsNullOrWhiteSpace($extension)) {
                     Write-Host "  Extension cannot be empty." -ForegroundColor Red
                     $extension = Read-Host "  Enter Extension / User ID"
                 }
                 $extension = $extension.Trim()
+
+                $fullName = Read-Host "  Enter Full Name & Designation (e.g. Ismail Hossain Saihan[IT])"
+                while ([string]::IsNullOrWhiteSpace($fullName)) {
+                    Write-Host "  Full Name cannot be empty." -ForegroundColor Red
+                    $fullName = Read-Host "  Enter Full Name & Designation"
+                }
+                $fullName = $fullName.Trim()
+
+                $suggestedDisplayName = if ($fullName -match "([A-Za-z]+).*?(\[[^\]]+\])") {
+                    "$($matches[1])-$($matches[2].Trim('[]'))"
+                } else {
+                    $fullName
+                }
+                $displayInput = Read-Host "  Enter Display Name / Caller ID [$suggestedDisplayName]"
+                $displayName = if ([string]::IsNullOrWhiteSpace($displayInput)) { $suggestedDisplayName } else { $displayInput.Trim() }
+
+                $suggestedAccountName = "$extension- $fullName"
+                $accountInput = Read-Host "  Enter Account Name [$suggestedAccountName]"
+                $accountName = if ([string]::IsNullOrWhiteSpace($accountInput)) { $suggestedAccountName } else { $accountInput.Trim() }
                 
                 $password = $null
                 while ([string]::IsNullOrWhiteSpace($password)) {
@@ -918,11 +966,18 @@ function Show-VoipMenu {
                 }
 
                 $defaultSip = $global:RemoteToolsConfig.DefaultSipServer
-                $sipInput = Read-Host "  Enter SIP Server IP [$defaultSip]"
+                $sipInput = Read-Host "  Enter SIP Server IP or Domain [$defaultSip]"
                 $sipServer = if ([string]::IsNullOrWhiteSpace($sipInput)) { $defaultSip } else { $sipInput.Trim() }
 
                 $appDataIni = Join-Path $env:APPDATA "MicroSIP\MicroSIP.ini"
-                $null = Set-MicroSipConfig -IniPath $appDataIni -Username $username -Extension $extension -Password $password -SipServer $sipServer
+                $null = Set-MicroSipConfig -IniPath $appDataIni `
+                                           -Extension $extension `
+                                           -FullName $fullName `
+                                           -DisplayName $displayName `
+                                           -AccountName $accountName `
+                                           -Password $password `
+                                           -SipServer $sipServer `
+                                           -SipPort $global:RemoteToolsConfig.DefaultSipPort
                 Write-Host "`n[OK] SIP configuration updated!" -ForegroundColor Green
                 Wait-UserPrompt "Press Enter to return to VOIP menu..."
             }

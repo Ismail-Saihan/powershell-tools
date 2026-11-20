@@ -24,10 +24,11 @@ $testIniPath = Join-Path $testIniDir "MicroSIP.ini"
 if (Test-Path $testIniDir) { Remove-Item $testIniDir -Recurse -Force }
 $null = New-Item -ItemType Directory -Path $testIniDir -Force
 
-# Test 1: Call Set-MicroSipConfig to create initial configuration from scratch
+# Test 1: Call Set-MicroSipConfig matching the user's exact screenshot configuration
 Set-MicroSipConfig -IniPath $testIniPath `
-                   -Username "John Doe" `
-                   -Extension "204" `
+                   -Extension "1054" `
+                   -FullName "Ismail Hossain Saihan[IT]" `
+                   -DisplayName "Ismail-IT" `
                    -Password "SecretPass123" `
                    -SipServer "182.163.126.250" `
                    -SipPort 5060
@@ -37,11 +38,22 @@ if (-not (Test-Path $testIniPath)) {
 }
 
 $iniContent = Get-Content $testIniPath -Raw
-if ($iniContent -notmatch "user=204") { throw "Test Failed: user=204 missing" }
-if ($iniContent -notmatch "authID=204") { throw "Test Failed: authID=204 missing" }
-if ($iniContent -notmatch "password=SecretPass123") { throw "Test Failed: password missing" }
+if ($iniContent -notmatch "label=1054- Ismail Hossain Saihan\[IT\]") { throw "Test Failed: label=1054- Ismail Hossain Saihan[IT] missing" }
+if ($iniContent -notmatch "user=1054") { throw "Test Failed: user=1054 missing" }
+if ($iniContent -notmatch "username=1054") { throw "Test Failed: username=1054 missing" }
+if ($iniContent -notmatch "authID=1054") { throw "Test Failed: authID=1054 missing" }
+if ($iniContent -notmatch "domain=182\.163\.126\.250") { throw "Test Failed: domain missing" }
 if ($iniContent -notmatch "server=182\.163\.126\.250:5060") { throw "Test Failed: server IP:port missing" }
-if ($iniContent -notmatch "name=John Doe") { throw "Test Failed: name missing" }
+if ($iniContent -notmatch "proxy=182\.163\.126\.250:5060") { throw "Test Failed: proxy IP:port missing" }
+if ($iniContent -notmatch "password=SecretPass123") { throw "Test Failed: password missing" }
+if ($iniContent -notmatch "displayName=Ismail-IT") { throw "Test Failed: displayName=Ismail-IT missing" }
+if ($iniContent -notmatch "name=Ismail-IT") { throw "Test Failed: name=Ismail-IT missing" }
+if ($iniContent -notmatch "publish=1") { throw "Test Failed: publish=1 missing" }
+if ($iniContent -notmatch "keepAlive=15") { throw "Test Failed: keepAlive=15 missing" }
+if ($iniContent -notmatch "regInterval=300") { throw "Test Failed: regInterval=300 missing" }
+if ($iniContent -notmatch "transport=0") { throw "Test Failed: transport=0 missing" }
+if ($iniContent -notmatch "srtp=0") { throw "Test Failed: srtp=0 missing" }
+if ($iniContent -notmatch "accountId=1") { throw "Test Failed: accountId=1 missing in Settings" }
 if ($iniContent -notmatch "autoStart=1") { throw "Test Failed: autoStart missing" }
 if ($iniContent -notmatch "autoRecording=1") { throw "Test Failed: autoRecording=1 missing" }
 if ($iniContent -notmatch "updatesInterval=never") { throw "Test Failed: updatesInterval=never missing" }
@@ -73,7 +85,7 @@ user=100
 
 # Update credentials with whitespace (testing VOIP-03 trimming)
 Set-MicroSipConfig -IniPath $testIniPath `
-                   -Username "  Jane Smith  " `
+                   -FullName "  Jane Smith  " `
                    -Extension "  305  " `
                    -Password "  NewSecurePass456  " `
                    -SipServer "  182.163.126.250  " `
@@ -87,10 +99,14 @@ if ($updatedContent -notmatch "101=Reception Desk") { throw "Test Failed: Preser
 if ($updatedContent -notmatch "102=Billing Department") { throw "Test Failed: Preserved contact entry 102 missing" }
 
 # Verify updated and trimmed Account1
+if ($updatedContent -notmatch "label=305- Jane Smith") { throw "Test Failed: Updated label missing or untrimmed" }
 if ($updatedContent -notmatch "user=305") { throw "Test Failed: Updated user=305 missing or untrimmed" }
+if ($updatedContent -notmatch "username=305") { throw "Test Failed: Updated username=305 missing or untrimmed" }
 if ($updatedContent -notmatch "authID=305") { throw "Test Failed: Updated authID=305 missing" }
+if ($updatedContent -notmatch "displayName=Jane Smith") { throw "Test Failed: Updated displayName missing or untrimmed" }
 if ($updatedContent -notmatch "name=Jane Smith") { throw "Test Failed: Updated name missing or untrimmed" }
 if ($updatedContent -notmatch "password=NewSecurePass456") { throw "Test Failed: Updated password missing or untrimmed" }
+if ($updatedContent -notmatch "accountId=1") { throw "Test Failed: accountId=1 missing in updated Settings" }
 
 # Verify call recording and updates interval enforced on existing INI
 if ($updatedContent -notmatch "autoRecording=1") { throw "Test Failed: autoRecording=1 missing in updated INI" }

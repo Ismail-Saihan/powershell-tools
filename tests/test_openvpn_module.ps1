@@ -24,6 +24,14 @@ if ($content -notmatch "OpenVPNServiceInteractive") {
     throw "Test Failed: OpenVPNServiceInteractive check missing in OpenVPN module"
 }
 
+# Verify OpenVPN download URLs do not use 404 source repository
+if ($content -match "github\.com/OpenVPN/openvpn/releases/download") {
+    throw "Test Failed: OpenVpnMsiUrl points to openvpn source repo instead of binary distribution (causes 404)"
+}
+if ($content -notmatch "swupdate\.openvpn\.(net|org)" -and $content -notmatch "build\.openvpn\.net") {
+    throw "Test Failed: OpenVpn mirrors must include official OpenVPN community CDN"
+}
+
 # Verify CommonDesktopDirectory usage (ENV-01)
 if ($content -notmatch "CommonDesktopDirectory") {
     throw "Test Failed: CommonDesktopDirectory not referenced for multi-user desktop shortcuts"
