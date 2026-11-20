@@ -460,6 +460,133 @@ function Show-PrinterDriverMenu {
     } while ($driverChoice -ne "4")
 }
 
+function Add-PrintServerDefenderExclusions {
+    param([string]$ServerDir = "C:\PrintServer")
+    Write-Host "  -> Configuring Windows Defender exclusions..." -ForegroundColor Cyan
+    try {
+        if (Get-Command Add-MpPreference -ErrorAction SilentlyContinue) {
+            Add-MpPreference -ExclusionPath $ServerDir -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionProcess "print_server.exe" -ErrorAction SilentlyContinue
+            Write-Host "  [OK] Defender exclusion added for folder: $ServerDir" -ForegroundColor Green
+            Write-Host "  [OK] Defender exclusion added for process: print_server.exe" -ForegroundColor Green
+            return $true
+        } else {
+            Write-Host "  [INFO] Windows Defender cmdlets not present on this system." -ForegroundColor DarkGray
+            return $true
+        }
+    } catch {
+        Write-Warning "Could not configure Defender exclusions: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Register-PrintServerStartup {
+    param(
+        [Parameter(Mandatory=$true)][string]$TargetExe,
+        [Parameter(Mandatory=$true)][string]$TargetDir,
+        [switch]$TestOnly
+    )
+
+    # Create VBScript launcher to start print_server.exe completely minimized
+    $vbsPath = Join-Path $TargetDir "start_minimized.vbs"
+    $vbsContent = @"
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run """$TargetExe""", 7, False
+"@
+    [System.IO.File]::WriteAllText($vbsPath, $vbsContent, [System.Text.Encoding]::ASCII)
+    Write-Host "  [OK] Minimized launcher created at: $vbsPath" -ForegroundColor Green
+
+    if ($TestOnly) {
+        return $vbsPath
+    }
+
+    # Place shortcut in Windows Startup directory
+    try {
+        $startupFolder = [Environment]::GetFolderPath("Startup")
+        $startupShortcut = Join-Path $startupFolder "PrintServer.lnk"
+        
+        $wshShell = New-Object -ComObject WScript.Shell
+        $shortcut = $wshShell.CreateShortcut($startupShortcut)
+        $shortcut.TargetPath = "wscript.exe"
+        $shortcut.Arguments = "`"$vbsPath`""
+        $shortcut.WorkingDirectory = $TargetDir
+        $shortcut.Description = "Barcode Print Server Bridge (Auto-Start Minimized)"
+        $shortcut.Save()
+        Write-Host "  [OK] Startup auto-launch configured: $startupShortcut" -ForegroundColor Green
+        return $startupShortcut
+    } catch {
+        Write-Warning "Could not configure startup shortcut: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Install-PrintServerModule {
+    Write-Host "`n=== [4] Install Barcode Print Server Bridge ===" -ForegroundColor Cyan
+
+    $serverDir = $global:RemoteToolsConfig.PrintServerDir
+    if (-not (Test-Path $serverDir)) {
+        $null = New-Item -ItemType Directory -Path $serverDir -Force
+    }
+
+    # Step 1: Microsoft Defender Exclusion
+    $null = Add-PrintServerDefenderExclusions -ServerDir $serverDir
+
+    # Step 2: Copy or Download print_server.exe
+    $destExe = Join-Path $serverDir "print_server.exe"
+    $localExe = Join-Path $PSScriptRoot "print_server.exe"
+
+    if (Test-Path $localExe) {
+        Write-Host "  -> Copying local print_server.exe to: $destExe" -ForegroundColor Cyan
+        Copy-Item -Path $localExe -Destination $destExe -Force
+        Write-Host "  [OK] print_server.exe placed in: $destExe" -ForegroundColor Green
+    } else {
+        $url = Get-ReleaseAssetUrl -Filename "print_server.exe"
+        $downloadOk = Invoke-DownloadWithProgress -Url $url -DestinationPath $destExe -Description "Barcode Print Server"
+        if (-not $downloadOk) {
+            Write-Error "Failed to obtain print_server.exe. Aborting installation."
+            return $false
+        }
+    }
+
+    # Step 3: Create Desktop Shortcut
+    try {
+        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        $desktopShortcut = Join-Path $desktopPath "Print Server.lnk"
+        $wshShell = New-Object -ComObject WScript.Shell
+        $shortcut = $wshShell.CreateShortcut($desktopShortcut)
+        $shortcut.TargetPath = $destExe
+        $shortcut.WorkingDirectory = $serverDir
+        $shortcut.Description = "Barcode Print Server Bridge"
+        $shortcut.WindowStyle = 7 # Minimized
+        $shortcut.Save()
+        Write-Host "  [OK] Desktop shortcut created: $desktopShortcut" -ForegroundColor Green
+    } catch {
+        Write-Warning "Could not create Desktop shortcut: $($_.Exception.Message)"
+    }
+
+    # Step 4: Register Minimized Startup
+    $null = Register-PrintServerStartup -TargetExe $destExe -TargetDir $serverDir
+
+    # Step 5: Start immediately if not already running
+    $running = Get-Process print_server -ErrorAction SilentlyContinue
+    if (-not $running) {
+        Write-Host "  -> Starting Print Server minimized right now..." -ForegroundColor Cyan
+        $vbsPath = Join-Path $serverDir "start_minimized.vbs"
+        Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsPath`""
+        Start-Sleep -Seconds 2
+        
+        $checkRunning = Get-Process print_server -ErrorAction SilentlyContinue
+        if ($checkRunning) {
+            Write-Host "  [OK] Print Server is actively running (Process ID: $($checkRunning.Id))!" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "  [OK] Print Server is already running (Process ID: $($running.Id))." -ForegroundColor Green
+    }
+
+    Write-Host "`n[SUCCESS] Print Server installed successfully and configured to run minimized at startup!" -ForegroundColor Green
+    return $true
+}
+
 function Show-MainMenu {
     Show-Header
     Write-Host "Select an option from the menu below:" -ForegroundColor Yellow
@@ -487,7 +614,7 @@ if (-not $TestMode) {
             "1" { $null = Install-OpenVPNModule; Write-Host "`nPress Enter to return to menu..."; [void][System.Console]::ReadLine() }
             "2" { $null = Install-VoipModule; Write-Host "`nPress Enter to return to menu..."; [void][System.Console]::ReadLine() }
             "3" { Show-PrinterDriverMenu }
-            "4" { Write-Host "`nFeature 4 selected" -ForegroundColor Cyan; Start-Sleep -Seconds 1 }
+            "4" { $null = Install-PrintServerModule; Write-Host "`nPress Enter to return to menu..."; [void][System.Console]::ReadLine() }
             "5" { Write-Host "`nExiting Remote Tools. Goodbye!" -ForegroundColor Green; break }
             default { Write-Host "Invalid option. Please choose between 1 and 5." -ForegroundColor Red; Start-Sleep -Seconds 1 }
         }
