@@ -19,8 +19,8 @@ irm https://raw.githubusercontent.com/Ismail-Saihan/powershell-tools/main/remote
   * `[3] Launch GUI`: Instantly starts OpenVPN GUI.
   * `[4] Test Connectivity`: Tests network reachability to the VPN gateway (`182.163.126.253`).
 * **2. VOIP Setup & MicroSIP Menu**:
-  * `[1] Full Setup`: Auto-installs MicroSIP, prompts for credentials, and writes configuration.
-  * `[2] Update Credentials`: Updates username, extension, password, or SIP IP without re-installing.
+  * `[1] Full Setup`: Auto-installs MicroSIP, prompts for credentials, configures `182.163.126.250:5060`, **enables automatic call recording (MP3)**, and **disables software update checks**.
+  * `[2] Update Credentials`: Updates username, extension, password, or SIP IP while enforcing call recording and disabling updates without re-installing.
   * `[3] Launch Softphone`: Opens MicroSIP directly.
   * `[4] Test Connectivity`: Tests connection to SIP Server (`182.163.126.250:5060`).
 * **3. Printer Driver Installation Menu**:

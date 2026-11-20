@@ -43,6 +43,10 @@ if ($iniContent -notmatch "password=SecretPass123") { throw "Test Failed: passwo
 if ($iniContent -notmatch "server=182\.163\.126\.250:5060") { throw "Test Failed: server IP:port missing" }
 if ($iniContent -notmatch "name=John Doe") { throw "Test Failed: name missing" }
 if ($iniContent -notmatch "autoStart=1") { throw "Test Failed: autoStart missing" }
+if ($iniContent -notmatch "autoRecording=1") { throw "Test Failed: autoRecording=1 missing" }
+if ($iniContent -notmatch "updatesInterval=never") { throw "Test Failed: updatesInterval=never missing" }
+if ($iniContent -notmatch "recordingFormat=mp3") { throw "Test Failed: recordingFormat=mp3 missing" }
+if ($iniContent -notmatch "recordingButton=1") { throw "Test Failed: recordingButton=1 missing" }
 
 # Test 2: Verify UTF-8 without BOM (VOIP-02)
 $bytes = [System.IO.File]::ReadAllBytes($testIniPath)
@@ -87,6 +91,10 @@ if ($updatedContent -notmatch "user=305") { throw "Test Failed: Updated user=305
 if ($updatedContent -notmatch "authID=305") { throw "Test Failed: Updated authID=305 missing" }
 if ($updatedContent -notmatch "name=Jane Smith") { throw "Test Failed: Updated name missing or untrimmed" }
 if ($updatedContent -notmatch "password=NewSecurePass456") { throw "Test Failed: Updated password missing or untrimmed" }
+
+# Verify call recording and updates interval enforced on existing INI
+if ($updatedContent -notmatch "autoRecording=1") { throw "Test Failed: autoRecording=1 missing in updated INI" }
+if ($updatedContent -notmatch "updatesInterval=never") { throw "Test Failed: updatesInterval=never missing in updated INI" }
 
 # Test 4: Get-MicroSipExePath
 $null = Get-MicroSipExePath

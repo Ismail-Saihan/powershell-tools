@@ -653,28 +653,51 @@ function Set-MicroSipConfig {
         }
     }
 
-    # Ensure [Settings] exists with baseline values if not present
-    if (-not $sections.Contains("Settings")) {
-        $settingsList = [System.Collections.Generic.List[string]]::new()
-        $settingsList.Add("autoStart=1")
-        $settingsList.Add("startMinimized=0")
-        $settingsList.Add("audioCodecs=PCMU/8000/1,PCMA/8000/1,G729/8000/1,opus/48000/2")
-        $settingsList.Add("singleMode=1")
-        $settingsList.Add("denyIncoming=0")
-        $sections["Settings"] = $settingsList
-    } else {
-        # If [Settings] exists, ensure autoStart=1 is present
-        $hasAutoStart = $false
-        foreach ($sLine in $sections["Settings"]) {
-            if ($sLine -match '^\s*autoStart\s*=') {
-                $hasAutoStart = $true
+    # Helper to set or update a key in a section list
+    function Set-IniSettingItem {
+        param($List, [string]$Key, [string]$Value)
+        $found = $false
+        for ($i = 0; $i -lt $List.Count; $i++) {
+            if ($List[$i] -match "^\s*$Key\s*=") {
+                $List[$i] = "$Key=$Value"
+                $found = $true
                 break
             }
         }
-        if (-not $hasAutoStart) {
-            $sections["Settings"].Add("autoStart=1")
+        if (-not $found) {
+            $List.Add("$Key=$Value")
         }
     }
+
+    # Ensure [Settings] exists with baseline values
+    if (-not $sections.Contains("Settings")) {
+        $sections["Settings"] = [System.Collections.Generic.List[string]]::new()
+        $sections["Settings"].Add("audioCodecs=PCMU/8000/1,PCMA/8000/1,G729/8000/1,opus/48000/2")
+    }
+
+    # Ensure dedicated recordings directory exists in Documents
+    $recordingsDir = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "MicroSIP\Recordings"
+    try {
+        if (-not (Test-Path $recordingsDir)) {
+            $null = New-Item -ItemType Directory -Path $recordingsDir -Force -ErrorAction SilentlyContinue
+        }
+    } catch {}
+
+    $settingsRef = $sections["Settings"]
+    Set-IniSettingItem -List $settingsRef -Key "autoStart" -Value "1"
+    Set-IniSettingItem -List $settingsRef -Key "startMinimized" -Value "0"
+    Set-IniSettingItem -List $settingsRef -Key "singleMode" -Value "1"
+    Set-IniSettingItem -List $settingsRef -Key "denyIncoming" -Value "0"
+
+    # User Requirement: Turn on call recording
+    Set-IniSettingItem -List $settingsRef -Key "autoRecording" -Value "1"
+    Set-IniSettingItem -List $settingsRef -Key "recordingButton" -Value "1"
+    Set-IniSettingItem -List $settingsRef -Key "recordingFormat" -Value "mp3"
+    Set-IniSettingItem -List $settingsRef -Key "recordingPath" -Value $recordingsDir
+
+    # User Requirement: Disable automatic updates
+    Set-IniSettingItem -List $settingsRef -Key "updatesInterval" -Value "never"
+    Set-IniSettingItem -List $settingsRef -Key "checkUpdatesTime" -Value "0"
 
     # Build updated [Account1] settings
     $accList = [System.Collections.Generic.List[string]]::new()
