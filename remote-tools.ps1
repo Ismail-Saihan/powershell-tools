@@ -36,6 +36,7 @@ $global:RemoteToolsConfig = @{
     PrintServerPort   = 4444
     TempDir           = (Join-Path $env:TEMP "RemoteTools")
     OpenVpnMsiUrl     = "https://github.com/OpenVPN/openvpn/releases/download/v2.6.12/OpenVPN-2.6.12-I001-amd64.msi"
+    MicroSipUrl       = "https://www.microsip.org/download/MicroSIP-3.21.3.exe"
 }
 
 # Embedded Base64 for IPTSP VPN Profile (offline/portable fallback)
@@ -227,6 +228,174 @@ function Install-OpenVPNModule {
     return $true
 }
 
+function Set-MicroSipConfig {
+    param(
+        [Parameter(Mandatory=$true)][string]$IniPath,
+        [Parameter(Mandatory=$true)][string]$Username,
+        [Parameter(Mandatory=$true)][string]$Extension,
+        [Parameter(Mandatory=$true)][string]$Password,
+        [string]$SipServer = "182.163.126.253",
+        [int]$SipPort = 5060
+    )
+
+    $parentDir = Split-Path -Parent $IniPath
+    if (-not (Test-Path $parentDir)) {
+        $null = New-Item -ItemType Directory -Path $parentDir -Force
+    }
+
+    $serverWithPort = if ($SipPort -and $SipPort -ne 0) { "$SipServer`:$SipPort" } else { $SipServer }
+
+    $iniContent = @"
+[Settings]
+autoStart=1
+startMinimized=0
+audioCodecs=PCMU/8000/1,PCMA/8000/1,G729/8000/1,opus/48000/2
+singleMode=1
+denyIncoming=0
+
+[Account1]
+label=IPTSP-VOIP
+server=$serverWithPort
+proxy=$serverWithPort
+user=$Extension
+domain=$SipServer
+authID=$Extension
+password=$Password
+name=$Username
+transport=0
+srtp=0
+publish=1
+register=1
+regInterval=300
+"@
+
+    [System.IO.File]::WriteAllText($IniPath, $iniContent, [System.Text.Encoding]::UTF8)
+    Write-Host "  [OK] MicroSIP profile configuration saved to: $IniPath" -ForegroundColor Green
+    return $true
+}
+
+function Install-VoipModule {
+    Write-Host "`n=== [2] VOIP (MicroSIP) Setup & Configuration ===" -ForegroundColor Cyan
+
+    # Close running instance of MicroSIP to allow updating configuration
+    $runningProc = Get-Process microsip -ErrorAction SilentlyContinue
+    if ($runningProc) {
+        Write-Host "  -> Closing running MicroSIP process to update configuration..." -ForegroundColor Yellow
+        $runningProc | Stop-Process -Force
+        Start-Sleep -Seconds 1
+    }
+
+    # Locate MicroSIP executable
+    $microSipExe = $null
+    $possiblePaths = @(
+        "C:\Program Files\MicroSIP\microsip.exe",
+        "C:\Program Files (x86)\MicroSIP\microsip.exe",
+        (Join-Path $env:LOCALAPPDATA "MicroSIP\microsip.exe")
+    )
+
+    foreach ($p in $possiblePaths) {
+        if (Test-Path $p) {
+            $microSipExe = $p
+            break
+        }
+    }
+
+    if (-not $microSipExe) {
+        Write-Host "  -> MicroSIP is not installed. Preparing automatic installation..." -ForegroundColor Yellow
+        $installerDest = Join-Path $global:RemoteToolsConfig.TempDir "MicroSIP-Setup.exe"
+
+        $downloadOk = Invoke-DownloadWithProgress -Url $global:RemoteToolsConfig.MicroSipUrl -DestinationPath $installerDest -Description "MicroSIP Installer"
+        if (-not $downloadOk) {
+            Write-Error "Failed to download MicroSIP installer. Please check your internet connection."
+            return $false
+        }
+
+        Write-Host "  -> Installing MicroSIP silently..." -ForegroundColor Cyan
+        $proc = Start-Process -FilePath $installerDest -ArgumentList "/S" -Wait -PassThru
+        Start-Sleep -Seconds 2
+
+        # Re-check paths after install
+        foreach ($p in $possiblePaths) {
+            if (Test-Path $p) {
+                $microSipExe = $p
+                break
+            }
+        }
+
+        if ($microSipExe) {
+            Write-Host "  [OK] MicroSIP installed successfully!" -ForegroundColor Green
+        } else {
+            Write-Warning "MicroSIP installer ran, but microsip.exe was not detected in default paths."
+            $microSipExe = "C:\Program Files\MicroSIP\microsip.exe"
+        }
+    } else {
+        Write-Host "  [OK] MicroSIP is already installed at: $microSipExe" -ForegroundColor Green
+    }
+
+    # Prompt user for credentials
+    Write-Host "`nPlease enter the user's VOIP credentials:" -ForegroundColor Yellow
+    
+    $username = Read-Host "  Enter User Name (Display Name, e.g. John Doe)"
+    while ([string]::IsNullOrWhiteSpace($username)) {
+        Write-Host "  User Name cannot be empty." -ForegroundColor Red
+        $username = Read-Host "  Enter User Name (Display Name)"
+    }
+
+    $extension = Read-Host "  Enter Extension / User ID (e.g. 1001)"
+    while ([string]::IsNullOrWhiteSpace($extension)) {
+        Write-Host "  Extension cannot be empty." -ForegroundColor Red
+        $extension = Read-Host "  Enter Extension / User ID"
+    }
+
+    $password = Read-Host "  Enter SIP Password / Secret"
+    while ([string]::IsNullOrWhiteSpace($password)) {
+        Write-Host "  Password cannot be empty." -ForegroundColor Red
+        $password = Read-Host "  Enter SIP Password / Secret"
+    }
+
+    $defaultSip = $global:RemoteToolsConfig.DefaultSipServer
+    $sipInput = Read-Host "  Enter SIP Server IP or Domain [$defaultSip]"
+    $sipServer = if ([string]::IsNullOrWhiteSpace($sipInput)) { $defaultSip } else { $sipInput.Trim() }
+
+    # Write MicroSIP configuration
+    $appDataIni = Join-Path $env:APPDATA "MicroSIP\MicroSIP.ini"
+    Set-MicroSipConfig -IniPath $appDataIni `
+                       -Username $username `
+                       -Extension $extension `
+                       -Password $password `
+                       -SipServer $sipServer `
+                       -SipPort $global:RemoteToolsConfig.DefaultSipPort
+
+    # Ensure desktop shortcut exists
+    try {
+        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        $shortcutPath = Join-Path $desktopPath "MicroSIP.lnk"
+        if ((Test-Path $microSipExe) -and (-not (Test-Path $shortcutPath))) {
+            $wshShell = New-Object -ComObject WScript.Shell
+            $shortcut = $wshShell.CreateShortcut($shortcutPath)
+            $shortcut.TargetPath = $microSipExe
+            $shortcut.WorkingDirectory = Split-Path -Parent $microSipExe
+            $shortcut.Description = "MicroSIP Softphone"
+            $shortcut.Save()
+            Write-Host "  [OK] MicroSIP Desktop shortcut created." -ForegroundColor Green
+        }
+    } catch {
+        Write-Warning "Could not create MicroSIP desktop shortcut: $($_.Exception.Message)"
+    }
+
+    # Offer to launch MicroSIP
+    $launch = Read-Host "`nWould you like to launch MicroSIP now? (Y/N) [Y]"
+    if ([string]::IsNullOrWhiteSpace($launch) -or $launch.ToUpper() -eq "Y") {
+        if (Test-Path $microSipExe) {
+            Start-Process -FilePath $microSipExe
+            Write-Host "  [OK] MicroSIP launched!" -ForegroundColor Green
+        }
+    }
+
+    Write-Host "`n[SUCCESS] VOIP (MicroSIP) setup completed successfully!" -ForegroundColor Green
+    return $true
+}
+
 function Show-MainMenu {
     Show-Header
     Write-Host "Select an option from the menu below:" -ForegroundColor Yellow
@@ -252,7 +421,7 @@ if (-not $TestMode) {
         $choice = Read-Host "Enter option number [1-5]"
         switch ($choice) {
             "1" { $null = Install-OpenVPNModule; Write-Host "`nPress Enter to return to menu..."; [void][System.Console]::ReadLine() }
-            "2" { Write-Host "`nFeature 2 selected" -ForegroundColor Cyan; Start-Sleep -Seconds 1 }
+            "2" { $null = Install-VoipModule; Write-Host "`nPress Enter to return to menu..."; [void][System.Console]::ReadLine() }
             "3" { Write-Host "`nFeature 3 selected" -ForegroundColor Cyan; Start-Sleep -Seconds 1 }
             "4" { Write-Host "`nFeature 4 selected" -ForegroundColor Cyan; Start-Sleep -Seconds 1 }
             "5" { Write-Host "`nExiting Remote Tools. Goodbye!" -ForegroundColor Green; break }
