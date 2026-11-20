@@ -1,0 +1,10 @@
+# Ignore large installer binaries (managed via GitHub Releases to avoid GitHub 100MB commit limit)
+*.exe
+Printer Driver/*.exe
+print_server.exe
+
+# Ignore temp files, logs, and agent artifacts
+*.log
+*.tmp
+.superpowers/
+tests/output/
